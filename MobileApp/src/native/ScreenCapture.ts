@@ -27,7 +27,7 @@ export interface ScreenCaptureNativeModule {
 }
 
 const LINKING_ERROR =
-  'ScreenCapture native module is not linked. See mobile/android/NATIVE_SETUP.md';
+  'ScreenCapture native module is not linked. See MobileApp/android/NATIVE_SETUP.md';
 
 export function getScreenCaptureModule(): ScreenCaptureNativeModule {
   if (Platform.OS !== 'android') {

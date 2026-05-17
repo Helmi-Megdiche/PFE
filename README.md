@@ -140,7 +140,6 @@ PFE/
 │   │   ├── config/apiConfig.ts
 │   │   └── utils/keywordFilter.ts
 │   └── package.json
-├── mobile/                        # Early scaffold (legacy reference)
 ├── docs/                          # Report artefacts (to be expanded)
 ├── README.md
 └── .gitignore

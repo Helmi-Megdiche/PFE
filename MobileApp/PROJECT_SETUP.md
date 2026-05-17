@@ -22,7 +22,3 @@ npx @react-native-community/cli@14.1.0 init MobileApp --pm npm --version 0.74.5
 - `src/` — ScreenMonitor, useScreenshotCapture, apiClient, JWT bootstrap
 - `android/.../com/mobileapp/screencapture/` — Java MediaProjection module
 - See `android/NATIVE_SETUP.md` for run instructions
-
-## Legacy folder
-
-The older `../mobile/` folder was a scaffold without a full RN template. Use **`MobileApp/`** as the main React Native app going forward.
