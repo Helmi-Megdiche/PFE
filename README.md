@@ -430,7 +430,7 @@ After each screenshot, **OCR** and **image classification** run in parallel:
 | 2 | TFLite → ML Kit labels → mock | `imageRiskScore`, category scores |
 | 3 | `riskCombination.ts` | `combinedRiskScore = OCR×0.3 + image×0.7` |
 
-**Pipeline order:** TFLite (if `android_asset/models/nsfw_violence.tflite` exists) → ML Kit Image Labeling → development mock (filename heuristics).
+**Pipeline order (RN 0.74.5):** ML Kit Image Labeling → development mock. TFLite via `react-native-fast-tflite` needs RN 0.76+ (Nitro); add after upgrading React Native.
 
 **New API fields** on `POST /api/screen-events`: `imageRiskScore`, `imageClassificationDetails`, `combinedRiskScore`.
 

@@ -17,15 +17,20 @@
 
 The model must output a **5-float probability vector** (softmax), input typically **224×224×3** RGB normalized to `[0, 1]`.
 
-## Install a real model (production)
+## TFLite on React Native 0.74.5
+
+`react-native-fast-tflite` requires **react-native-nitro-modules**, which targets newer React Native (0.76+). This project uses **RN 0.74.5**, so vision runs on:
+
+1. **ML Kit Image Labeling** (primary)
+2. **Development mock** (filename heuristics)
+
+To add TFLite later: upgrade React Native or use a TF Lite bridge compatible with 0.74, then bundle `nsfw_violence.tflite` under `android/app/src/main/assets/models/`.
+
+## Install a real model (after RN / TFLite upgrade)
 
 1. Obtain or train a MobileNet-based NSFW / violence detector exported to `.tflite`.
-2. Copy the file to **both**:
-   - `MobileApp/assets/models/nsfw_violence.tflite` (Metro bundle), and
-   - `MobileApp/android/app/src/main/assets/models/nsfw_violence.tflite` (runtime load on Android).
-3. Rebuild the app: `cd MobileApp && npm run android`.
-
-Until the file exists, the app uses the **development mock** (path heuristics) and **ML Kit Image Labeling** as fallback.
+2. Copy to `MobileApp/android/app/src/main/assets/models/nsfw_violence.tflite`.
+3. Rebuild: `cd MobileApp && npm run android`.
 
 ## Development mock
 

@@ -4,7 +4,7 @@ import {Platform} from 'react-native';
  * Your PC's Wi‑Fi IPv4 (ipconfig). Change if the phone cannot reach the backend.
  * Emulator ignores this and uses 10.0.2.2.
  */
-export const DEV_LAN_HOST = '10.30.23.30';   //badel hetha bel adress ip teek
+export const DEV_LAN_HOST = '10.30.23.30';
 
 const DEV_API_PORT = 3000;
 

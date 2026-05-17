@@ -14,9 +14,7 @@
     "@react-native-ml-kit/image-labeling": "^1.4.1",
     "@react-native-ml-kit/text-recognition": "^1.5.2",
     "react": "18.2.0",
-    "react-native": "0.74.5",
-    "react-native-fast-tflite": "^1.6.1",
-    "react-native-nitro-modules": "^0.31.0"
+    "react-native": "0.74.5"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

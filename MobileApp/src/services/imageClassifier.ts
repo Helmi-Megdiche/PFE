@@ -1,11 +1,11 @@
 /**
  * On-device image classification — Sprint 3.
  *
- * Pipeline: TFLite (if model on device) → ML Kit Image Labeling → development mock.
- * Replace mock by adding `nsfw_violence.tflite` (see assets/models/README.md).
+ * Pipeline: ML Kit Image Labeling → development mock.
+ * TFLite (react-native-fast-tflite) is optional and requires RN 0.76+ / Nitro;
+ * use ML Kit + mock on RN 0.74.5. See assets/models/README.md to add TFLite later.
  */
 
-import { Platform } from 'react-native';
 import type {
   ClassificationSource,
   ImageClassificationDetails,
@@ -14,9 +14,6 @@ import type {
 } from '../types/imageClassification';
 import { computeImageRiskScore } from '../utils/riskCombination';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
-
-const TFLITE_ASSET = 'nsfw_violence.tflite';
-const ANDROID_ASSET_URL = `file:///android_asset/models/${TFLITE_ASSET}`;
 
 const MLKIT_VIOLENCE = [
   'weapon',
@@ -39,14 +36,6 @@ const MLKIT_EDUCATIONAL = [
   'library',
   'school',
 ];
-
-let cachedTfliteModel: TfliteModelHandle | null = null;
-let tfliteLoadAttempted = false;
-let tfliteLoadFailed = false;
-
-interface TfliteModelHandle {
-  run: (inputs: unknown[]) => Promise<unknown[]>;
-}
 
 function scoresToResult(
   scores: ImageClassificationScores,
@@ -198,82 +187,6 @@ async function classifyWithMlKit(imageUri: string): Promise<ImageClassificationR
   }
 }
 
-function mapTfliteOutputs(outputs: number[]): ImageClassificationScores {
-  const safe = clamp01(outputs[0] ?? 0);
-  const violent = clamp01(outputs[1] ?? 0);
-  const adult = clamp01(outputs[2] ?? 0);
-  const gore = clamp01(outputs[3] ?? 0);
-  const challenge = clamp01(outputs[4] ?? 0);
-
-  const scores: ImageClassificationScores = {
-    violenceScore: violent,
-    adultScore: adult,
-    goreScore: gore,
-    dangerousChallengeScore: challenge,
-    educationalScore: Math.max(educationalFromUnsafe({ violenceScore: violent, adultScore: adult, goreScore: gore, dangerousChallengeScore: challenge, educationalScore: 0 }), safe * 0.5),
-  };
-
-  return scores;
-}
-
-async function loadTfliteModel(): Promise<TfliteModelHandle | null> {
-  if (cachedTfliteModel) {
-    return cachedTfliteModel;
-  }
-  if (tfliteLoadAttempted && tfliteLoadFailed) {
-    return null;
-  }
-
-  tfliteLoadAttempted = true;
-
-  if (Platform.OS !== 'android') {
-    tfliteLoadFailed = true;
-    return null;
-  }
-
-  try {
-    const { loadTensorflowModel } = require('react-native-fast-tflite');
-    const model = await loadTensorflowModel({ url: ANDROID_ASSET_URL });
-    cachedTfliteModel = model as TfliteModelHandle;
-    scLog('TFLite model loaded from Android assets', { asset: TFLITE_ASSET });
-    return cachedTfliteModel;
-  } catch (err) {
-    tfliteLoadFailed = true;
-    scWarn('TFLite model not available — using ML Kit / mock', err);
-    return null;
-  }
-}
-
-/**
- * Runs TFLite when a real model is bundled. Without preprocessing, inference is skipped
- * (returns null) so ML Kit / mock handle the frame. When you add a 224×224 model, wire
- * tensor input here (e.g. react-native-image-resizer + float32 normalize).
- */
-async function classifyWithTflite(
-  _imageUri: string,
-): Promise<ImageClassificationResult | null> {
-  const model = await loadTfliteModel();
-  if (!model) {
-    return null;
-  }
-
-  // No bundled model file → skip run (load usually fails first).
-  // When a model exists, replace this block with real tensor preprocessing.
-  try {
-    const outputs = (await model.run([])) as number[][];
-    const vector = outputs[0];
-    if (!vector || vector.length < 5) {
-      scWarn('TFLite output unexpected shape — skipping');
-      return null;
-    }
-    const scores = mapTfliteOutputs(vector);
-    return scoresToResult(scores, 'tflite', { tfliteOutputs: vector.slice(0, 5) });
-  } catch (err) {
-    scWarn('TFLite inference skipped or failed', err);
-    return null;
-  }
-}
-
 /**
  * Classify a captured screenshot (non-blocking async).
  */
@@ -281,11 +194,6 @@ export async function classifyImage(
   imageUri: string,
   filePath?: string,
 ): Promise<ImageClassificationResult> {
-  const tflite = await classifyWithTflite(imageUri);
-  if (tflite) {
-    return tflite;
-  }
-
   const mlkit = await classifyWithMlKit(imageUri);
   if (mlkit) {
     return mlkit;
@@ -295,7 +203,7 @@ export async function classifyImage(
   return classifyWithMock(imageUri, filePath);
 }
 
-/** Pre-warm TFLite on app start (optional). */
+/** Optional warm-up (ML Kit loads on first classify). */
 export function preloadImageClassifier(): void {
-  void loadTfliteModel();
+  scLog('Image classifier ready (ML Kit + mock)');
 }
