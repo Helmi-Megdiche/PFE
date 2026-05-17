@@ -1,0 +1,20 @@
+{
+  "name": "pfe-child-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.1.0",
+    "@react-native-ml-kit/text-recognition": "^1.5.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "react": "^18.2.0",
+    "react-native": "^0.74.5",
+    "typescript": "^5.7.2"
+  }
+}

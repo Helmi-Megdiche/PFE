@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.log
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# React Native / Android
+.gradle/
+.cxx/
+local.properties
+*.hprof
+**/android/app/build/
+**/android/.gradle/
+
+# Metro
+.metro-health-check*
+
+# Coverage
+coverage/

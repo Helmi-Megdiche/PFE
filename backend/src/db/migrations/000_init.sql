@@ -1,0 +1,18 @@
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  role VARCHAR(20) NOT NULL CHECK (role IN ('parent', 'child')),
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS children (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  parent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  display_name VARCHAR(100) NOT NULL,
+  birth_year INT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
