@@ -1,0 +1,12 @@
+---
+description: Never push to git unless the user explicitly asks
+alwaysApply: true
+---
+
+# Git — no push without explicit request
+
+- **Never run `git push`** (including `git push -u`, force push, or push via `gh` that updates the remote branch) unless the user **explicitly** asks you to push in that conversation.
+- Commits, branches, and local git operations are fine when the user asks for them; pushing is the exception.
+- Do not suggest pushing as a default next step. If the remote is behind or a PR needs updating, tell the user what to run or ask whether they want you to push.
+- Phrases that count as permission: “push”, “push to GitHub”, “push this branch”, “update the remote”, etc. Vague approval (“looks good”, “ship it”) does **not** count unless they clearly mean push.
+- If a workflow would normally push (e.g. after `gh pr create`), stop after the local/remote-prep steps and wait for explicit push approval, unless the user already said to push in the same request.

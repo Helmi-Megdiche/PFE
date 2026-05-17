@@ -7,7 +7,13 @@ import getScreenCaptureModule, {
   type ScreenCapturedEvent,
 } from '../native/ScreenCapture';
 import { keywordFilter } from '../utils/keywordFilter';
+import { classifyImage } from '../services/imageClassifier';
 import { postScreenEvent } from '../services/screenEventsApi';
+import {
+  combineRiskScores,
+  computeOcrRiskScore,
+  resolveCombinedCategory,
+} from '../utils/riskCombination';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
 import type {
@@ -92,22 +98,62 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
 
       try {
-        const ocrResult = await TextRecognition.recognize(ocrInput);
+        const [ocrResult, imageClassification] = await Promise.all([
+          TextRecognition.recognize(ocrInput),
+          classifyImage(ocrInput, filePath),
+        ]);
+
         const fullText = ocrResult.text ?? '';
         const preview = truncateText(fullText, maxTextLength);
         scLog('OCR done', { chars: preview.length, preview: preview.slice(0, 80) });
 
-        const { riskFlag, category } = keywordFilter(preview);
-        scLog('Keyword filter', { riskFlag, category });
+        const keywordResult = keywordFilter(preview);
+        scLog('Keyword filter', {
+          riskFlag: keywordResult.riskFlag,
+          category: keywordResult.category,
+        });
+
+        scLog('Image classification', {
+          source: imageClassification.source,
+          imageRiskScore: imageClassification.imageRiskScore,
+          violence: imageClassification.violenceScore.toFixed(2),
+          adult: imageClassification.adultScore.toFixed(2),
+        });
+
+        const ocrRiskScore = computeOcrRiskScore(
+          keywordResult.riskFlag,
+          keywordResult.category,
+          keywordResult.matchedKeywords.length,
+        );
+        const combinedRiskScore = combineRiskScores(
+          ocrRiskScore,
+          imageClassification.imageRiskScore,
+        );
+        const finalRiskFlag = combinedRiskScore > 50;
+        const finalCategory = resolveCombinedCategory(
+          imageClassification,
+          keywordResult.category,
+        );
 
         const payload: ScreenEventPayload = {
           timestamp: new Date().toISOString(),
           appPackage: appPackage || 'unknown',
           extractedTextPreview: preview,
-          riskFlag,
-          riskScore: riskFlag ? 75 : null,
-          category: riskFlag ? category : 'neutral',
+          riskFlag: finalRiskFlag,
+          riskScore: combinedRiskScore,
+          imageRiskScore: imageClassification.imageRiskScore,
+          combinedRiskScore,
+          imageClassificationDetails: imageClassification.imageClassificationDetails,
+          category: finalCategory,
         };
+
+        scLog('Combined risk', {
+          ocrRiskScore,
+          imageRiskScore: imageClassification.imageRiskScore,
+          combinedRiskScore,
+          finalRiskFlag,
+          category: finalCategory,
+        });
 
         await postScreenEvent(payload);
         scLog('POST /api/screen-events OK');

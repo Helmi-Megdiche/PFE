@@ -17,7 +17,7 @@ const RISK_CATEGORIES: RiskCategory[] = ['violent', 'toxic', 'dangerous'];
 
 /**
  * Sprint 1 fallback — keyword scan on OCR text (on-device).
- * Sprint 3 : remplacer par scores TFLite.
+ * Combined with TFLite / ML Kit vision scores in useScreenshotCapture (Sprint 3).
  */
 export function keywordFilter(text: string): KeywordFilterResult {
   const normalized = text.toLowerCase();

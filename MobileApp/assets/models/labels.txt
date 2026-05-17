@@ -1,0 +1,5 @@
+safe
+violent
+adult
+gore
+dangerous_challenge

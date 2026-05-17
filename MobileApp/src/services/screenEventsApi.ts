@@ -9,6 +9,9 @@ export interface ScreenEventResponse {
   extractedTextPreview: string;
   riskFlag: boolean;
   riskScore: number | null;
+  imageRiskScore: number | null;
+  imageClassificationDetails: Record<string, unknown> | null;
+  combinedRiskScore: number | null;
   category: string | null;
   createdAt: string;
 }

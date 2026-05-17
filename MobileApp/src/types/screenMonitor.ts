@@ -3,7 +3,10 @@ export type RiskCategory =
   | 'toxic'
   | 'dangerous'
   | 'educational'
-  | 'neutral';
+  | 'neutral'
+  | 'adult'
+  | 'gore'
+  | 'dangerous_challenge';
 
 export interface ScreenEventPayload {
   timestamp: string;
@@ -11,6 +14,9 @@ export interface ScreenEventPayload {
   extractedTextPreview: string;
   riskFlag: boolean;
   riskScore?: number | null;
+  imageRiskScore?: number | null;
+  combinedRiskScore?: number | null;
+  imageClassificationDetails?: Record<string, unknown> | null;
   category?: RiskCategory | null;
 }
 

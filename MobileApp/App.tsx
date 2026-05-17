@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, SafeAreaView, StatusBar, StyleSheet, Text} from 'react-native';
 import {AppApiBootstrap} from './src/auth/AppApiBootstrap';
 import {ScreenMonitor} from './src/components/ScreenMonitor';
@@ -6,12 +6,17 @@ import {UsageTracker} from './src/components/UsageTracker';
 import {tokenStorage} from './src/auth/tokenStorage';
 import {useDevChildToken} from './src/auth/useDevChildToken';
 import {getApiBaseUrl} from './src/config/apiConfig';
+import {preloadImageClassifier} from './src/services/imageClassifier';
 
 const API_BASE_URL = getApiBaseUrl();
 
 function App(): React.JSX.Element {
   const [consentGranted] = useState(true);
   const {ready, error: tokenError} = useDevChildToken(API_BASE_URL);
+
+  useEffect(() => {
+    preloadImageClassifier();
+  }, []);
 
   if (!ready) {
     return (

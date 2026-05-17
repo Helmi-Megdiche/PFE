@@ -293,12 +293,19 @@ Returns a signed JWT for the seeded test child.
   "appPackage": "com.instagram.android",
   "extractedTextPreview": "Sample OCR text from screen...",
   "riskFlag": true,
-  "riskScore": 85,
-  "category": "toxic"
+  "riskScore": 72,
+  "imageRiskScore": 81,
+  "combinedRiskScore": 78,
+  "imageClassificationDetails": {
+    "source": "mlkit",
+    "violenceScore": 0.12,
+    "imageRiskScore": 81
+  },
+  "category": "violent"
 }
 ```
 
-**Response:** `201 Created` with stored event.
+**Response:** `201 Created` with stored event (includes Sprint 3 vision fields when provided).
 
 ### `GET /api/screen-events/:childId` (parent)
 
@@ -405,19 +412,55 @@ See also `MobileApp/TESTING.md` if present in the repo.
 |--------|-------|--------|-------------|
 | 1 | 18 – 31 May 2026 | Complete | Screen monitoring, on-device OCR, keyword filter, JWT API, `screen_events` storage |
 | 2 | 1 – 14 June 2026 | Complete | Usage tracking (AppState MVP), scoring engine, cron job, usage & score APIs |
-| 3 | 15 – 28 June 2026 | Planned | TFLite classification, mission generation |
+| 3 | 15 – 28 June 2026 | Complete | On-device image classification (TFLite + ML Kit + mock), combined OCR/vision risk |
 | 4 | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | 5 | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint 2 – usage sessions, daily scores, and parent score endpoints.
+**Current milestone:** Sprint 3 – combined OCR + on-device vision risk on every screen capture.
 
 ---
 
-## Next Steps (Sprint 3)
+## Sprint 3 – Image classification (on-device)
 
-1. **Per-app usage** – native `UsageStatsManager` module (PACKAGE_USAGE_STATS).
-2. **TFLite content classification** – enrich well-being content quality from screen events.
-3. **Real-world missions** – triggered by score thresholds.
+After each screenshot, **OCR** and **image classification** run in parallel:
+
+| Step | Module | Output |
+|------|--------|--------|
+| 1 | ML Kit OCR | Text preview + keyword risk |
+| 2 | TFLite → ML Kit labels → mock | `imageRiskScore`, category scores |
+| 3 | `riskCombination.ts` | `combinedRiskScore = OCR×0.3 + image×0.7` |
+
+**Pipeline order:** TFLite (if `android_asset/models/nsfw_violence.tflite` exists) → ML Kit Image Labeling → development mock (filename heuristics).
+
+**New API fields** on `POST /api/screen-events`: `imageRiskScore`, `imageClassificationDetails`, `combinedRiskScore`.
+
+**Replace mock with a real model:** see [MobileApp/assets/models/README.md](MobileApp/assets/models/README.md).
+
+**Rebuild required** after adding native deps:
+
+```bash
+cd MobileApp
+npm install
+npm run android
+```
+
+**Verify vision fields:**
+
+```sql
+SELECT timestamp, image_risk_score, combined_risk_score, category,
+       image_classification_json->>'source' AS classifier
+FROM screen_events
+ORDER BY timestamp DESC
+LIMIT 10;
+```
+
+---
+
+## Next Steps (Sprint 4)
+
+1. **Real-world missions** – triggered when `combined_risk_score` exceeds thresholds.
+2. **Gamification** – points, badges, parent-defined rewards.
+3. **Parent web dashboard** – visualize vision + usage + scores.
 
 ---
 
@@ -444,4 +487,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 17 May 2026  
-**Status:** Sprint 2 complete – usage tracking, scoring engine, and parent score APIs.
+**Status:** Sprint 3 complete – on-device image classification integrated with screen monitoring.

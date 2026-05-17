@@ -22,6 +22,9 @@ interface ScreenEventRow {
   extracted_text_preview: string;
   risk_flag: boolean;
   risk_score: number | null;
+  image_risk_score: number | null;
+  image_classification_json: Record<string, unknown> | null;
+  combined_risk_score: number | null;
   category: string | null;
   created_at: string;
 }
@@ -42,6 +45,9 @@ router.post(
       extractedTextPreview,
       riskFlag,
       riskScore,
+      imageRiskScore,
+      combinedRiskScore,
+      imageClassificationDetails,
       category,
     } = req.body;
 
@@ -49,10 +55,12 @@ router.post(
       const { rows } = await query<ScreenEventRow>(
         `INSERT INTO screen_events (
           child_id, timestamp, app_package, extracted_text_preview,
-          risk_flag, risk_score, category
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          risk_flag, risk_score, image_risk_score, image_classification_json,
+          combined_risk_score, category
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, child_id, timestamp, app_package, extracted_text_preview,
-                  risk_flag, risk_score, category, created_at`,
+                  risk_flag, risk_score, image_risk_score, image_classification_json,
+                  combined_risk_score, category, created_at`,
         [
           childId,
           timestamp,
@@ -60,6 +68,11 @@ router.post(
           extractedTextPreview,
           riskFlag,
           riskScore ?? null,
+          imageRiskScore ?? null,
+          imageClassificationDetails
+            ? JSON.stringify(imageClassificationDetails)
+            : null,
+          combinedRiskScore ?? null,
           category ?? null,
         ],
       );
@@ -69,6 +82,8 @@ router.post(
         eventId: event.id,
         childId,
         riskFlag,
+        combinedRiskScore: event.combined_risk_score,
+        imageRiskScore: event.image_risk_score,
         appPackage,
       });
 
@@ -80,6 +95,9 @@ router.post(
         extractedTextPreview: event.extracted_text_preview,
         riskFlag: event.risk_flag,
         riskScore: event.risk_score,
+        imageRiskScore: event.image_risk_score,
+        imageClassificationDetails: event.image_classification_json,
+        combinedRiskScore: event.combined_risk_score,
         category: event.category,
         createdAt: event.created_at,
       });
@@ -108,7 +126,8 @@ router.get(
     try {
       const { rows } = await query<ScreenEventRow>(
         `SELECT id, child_id, timestamp, app_package, extracted_text_preview,
-                risk_flag, risk_score, category, created_at
+                risk_flag, risk_score, image_risk_score, image_classification_json,
+                combined_risk_score, category, created_at
          FROM screen_events
          WHERE child_id = $1
          ORDER BY timestamp DESC
@@ -125,6 +144,9 @@ router.get(
           extractedTextPreview: e.extracted_text_preview,
           riskFlag: e.risk_flag,
           riskScore: e.risk_score,
+          imageRiskScore: e.image_risk_score,
+          imageClassificationDetails: e.image_classification_json,
+          combinedRiskScore: e.combined_risk_score,
           category: e.category,
           createdAt: e.created_at,
         })),
