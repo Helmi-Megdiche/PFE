@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {ActivityIndicator, SafeAreaView, StatusBar, StyleSheet, Text} from 'react-native';
 import {AppApiBootstrap} from './src/auth/AppApiBootstrap';
 import {ScreenMonitor} from './src/components/ScreenMonitor';
+import {UsageTracker} from './src/components/UsageTracker';
 import {tokenStorage} from './src/auth/tokenStorage';
 import {useDevChildToken} from './src/auth/useDevChildToken';
 import {getApiBaseUrl} from './src/config/apiConfig';
@@ -33,6 +34,7 @@ function App(): React.JSX.Element {
           </Text>
         ) : null}
         <ScreenMonitor consentGranted={consentGranted} intervalMs={30000} />
+        <UsageTracker enabled={consentGranted} />
       </SafeAreaView>
     </AppApiBootstrap>
   );

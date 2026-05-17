@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { env } from './config/env';
 import { pool } from './db/pool';
 import { logger } from './utils/logger';
+import { scheduleDailyScoreJob } from './jobs/dailyScoreJob';
 
 async function start() {
   const app = createApp();
@@ -9,6 +10,7 @@ async function start() {
   try {
     await pool.query('SELECT 1');
     logger.info('Database connection established');
+    scheduleDailyScoreJob();
   } catch (err) {
     logger.error('Database connection failed', {
       err: err instanceof Error ? err.message : String(err),

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { env } from '../config/env';
 import { verifyToken } from '../middleware/verifyToken';
 import screenEventsRoutes from './screenEvents.routes';
+import usageRoutes from './usage.routes';
+import scoresRoutes from './scores.routes';
 import devRoutes from './dev.routes';
 
 const router = Router();
@@ -20,5 +22,7 @@ if (!env.isProduction) {
 router.use(verifyToken);
 
 router.use('/screen-events', screenEventsRoutes);
+router.use('/usage', usageRoutes);
+router.use('/scores', scoresRoutes);
 
 export default router;

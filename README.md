@@ -230,6 +230,10 @@ Protected routes require `Authorization: Bearer <token>`.
 | `GET /api/dev/child-token` | Dev only (`NODE_ENV=development`) |
 | `POST /api/screen-events` | Child JWT |
 | `GET /api/screen-events/:childId` | Parent JWT |
+| `POST /api/usage` | Child JWT |
+| `GET /api/usage/:childId` | Parent JWT |
+| `GET /api/scores/:childId` | Parent JWT |
+| `GET /api/scores/:childId/trend` | Parent JWT |
 
 In development, `AppApiBootstrap` fetches a child token from `/api/dev/child-token` (see migration `002_dev_seed.sql` for test child UUID).
 
@@ -259,7 +263,13 @@ export const DEV_LAN_HOST = '192.168.x.x';  // from ipconfig (Windows) or ifconf
 | 2 | `MobileApp` | `npm start` | Metro bundler |
 | 3 | `MobileApp` | `npm run android` | Install on device |
 
-Grant **MediaProjection** when prompted. Screen monitoring starts automatically via `ScreenMonitor`.
+Grant **MediaProjection** when prompted. Screen monitoring starts automatically via `ScreenMonitor`. Usage tracking runs via `UsageTracker` / `useForegroundTracker` (AppState MVP).
+
+Run scoring unit tests:
+
+```bash
+cd backend && npm test
+```
 
 ---
 
@@ -294,13 +304,55 @@ Returns a signed JWT for the seeded test child.
 
 Returns screen events for the given child (JWT must match parent/child roles as implemented in middleware).
 
-### Planned (Sprint 2)
+## API Endpoints (Sprint 2)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/usage` | Foreground app usage sessions |
-| GET | `/api/scores/:childId` | Addiction & well-being scores |
-| GET | `/api/usage/:childId` | Usage history for dashboard |
+### `POST /api/usage` (child)
+
+Batch insert foreground usage sessions.
+
+```json
+{
+  "sessions": [
+    {
+      "startTime": "2026-05-17T10:00:00.000Z",
+      "endTime": "2026-05-17T10:15:00.000Z",
+      "appPackage": "com.mobileapp",
+      "appCategory": "unknown"
+    }
+  ]
+}
+```
+
+**Response:** `{ "count": 1 }`
+
+### `GET /api/usage/:childId?date=YYYY-MM-DD` (parent)
+
+Returns raw sessions for a calendar day (defaults to today).
+
+### `GET /api/scores/:childId?date=YYYY-MM-DD` (parent)
+
+Returns addiction and well-being scores for a date. Without `date`, returns the latest stored score.
+
+### `GET /api/scores/:childId/trend?days=7` (parent)
+
+Returns daily scores for the last N days (1–90).
+
+### Scoring formulas
+
+See [docs/scoring_formulas.md](docs/scoring_formulas.md) for component weights, examples, and cron behaviour.
+
+**Verify usage & scores in PostgreSQL:**
+
+```sql
+SELECT start_time, end_time, app_package, app_category
+FROM usage_sessions
+ORDER BY start_time DESC
+LIMIT 10;
+
+SELECT score_date, addiction_score, wellbeing_score
+FROM daily_scores
+ORDER BY score_date DESC;
+```
 
 ---
 
@@ -352,21 +404,20 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | Sprint | Dates | Status | Deliverable |
 |--------|-------|--------|-------------|
 | 1 | 18 – 31 May 2026 | Complete | Screen monitoring, on-device OCR, keyword filter, JWT API, `screen_events` storage |
-| 2 | 1 – 14 June 2026 | Planned | Foreground usage tracking, scoring engine, cron, dashboard endpoints |
+| 2 | 1 – 14 June 2026 | Complete | Usage tracking (AppState MVP), scoring engine, cron job, usage & score APIs |
 | 3 | 15 – 28 June 2026 | Planned | TFLite classification, mission generation |
 | 4 | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | 5 | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint 1 – end-to-end pipeline verified (`screen_events` contains live OCR data).
+**Current milestone:** Sprint 2 – usage sessions, daily scores, and parent score endpoints.
 
 ---
 
-## Next Steps (Sprint 2)
+## Next Steps (Sprint 3)
 
-1. **Foreground usage tracker** – React Native module / hook sending app open-close events to `POST /api/usage`.
-2. **Scoring engine** – addiction risk and digital well-being formulas on aggregated usage.
-3. **Cron job** – daily score computation with `node-cron`.
-4. **Parent dashboard API** – `GET /api/scores/:childId`, `GET /api/usage/:childId`.
+1. **Per-app usage** – native `UsageStatsManager` module (PACKAGE_USAGE_STATS).
+2. **TFLite content classification** – enrich well-being content quality from screen events.
+3. **Real-world missions** – triggered by score thresholds.
 
 ---
 
@@ -393,4 +444,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 17 May 2026  
-**Status:** Sprint 1 complete – ready for demonstration and Sprint 2.
+**Status:** Sprint 2 complete – usage tracking, scoring engine, and parent score APIs.

@@ -103,7 +103,7 @@ router.get(
   validateQuery(listScreenEventsQuerySchema),
   async (req: AuthenticatedRequest, res: Response) => {
     const { childId } = req.params;
-    const { limit } = req.query as { limit: number };
+    const { limit } = req.query as unknown as { limit: number };
 
     try {
       const { rows } = await query<ScreenEventRow>(
