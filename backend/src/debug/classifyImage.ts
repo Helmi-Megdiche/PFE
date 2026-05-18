@@ -1,13 +1,20 @@
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-cpu';
-import * as mobilenet from '@tensorflow-models/mobilenet';
+import * as nsfwjs from 'nsfwjs';
 import Jimp from 'jimp';
-import { mapMlKitLabelsToRisk, type MlKitLabel } from '../utils/riskMapping';
+import { createWorker, type Worker } from 'tesseract.js';
+import { analyzeText } from '../utils/keywordFilter';
+import { combineRiskScores, resolveDebugFinalCategory } from '../utils/riskCombination';
+import { mapNsfwPredictions } from './nsfwVision';
 import { logger } from '../utils/logger';
 
-let model: mobilenet.MobileNet | null = null;
-let modelLoadPromise: Promise<mobilenet.MobileNet> | null = null;
+const NSFW_INPUT_SIZE = 224;
+
 let backendReady: Promise<void> | null = null;
+let nsfwModel: nsfwjs.NSFWJS | null = null;
+let nsfwLoadPromise: Promise<nsfwjs.NSFWJS> | null = null;
+let ocrWorker: Worker | null = null;
+let ocrReady: Promise<Worker> | null = null;
 
 async function ensureBackend(): Promise<void> {
   if (!backendReady) {
@@ -16,21 +23,36 @@ async function ensureBackend(): Promise<void> {
   return backendReady;
 }
 
-async function loadModel(): Promise<mobilenet.MobileNet> {
+async function loadNsfwModel(): Promise<nsfwjs.NSFWJS> {
   await ensureBackend();
-  if (model) return model;
-  if (!modelLoadPromise) {
-    modelLoadPromise = mobilenet.load({ version: 2, alpha: 0.5 }).then((m) => {
-      model = m;
-      logger.info('MobileNet model loaded for debug classification');
+  if (nsfwModel) return nsfwModel;
+  if (!nsfwLoadPromise) {
+    nsfwLoadPromise = nsfwjs.load().then((m) => {
+      nsfwModel = m;
+      logger.info('nsfwjs model loaded for debug classification');
       return m;
     });
   }
-  return modelLoadPromise;
+  return nsfwLoadPromise;
 }
 
-async function bufferToTensor(buffer: Buffer): Promise<tf.Tensor3D> {
+async function getOcrWorker(): Promise<Worker> {
+  if (ocrWorker) return ocrWorker;
+  if (!ocrReady) {
+    ocrReady = createWorker('eng', 1, {
+      logger: () => undefined,
+    }).then((worker) => {
+      ocrWorker = worker;
+      logger.info('Tesseract OCR worker ready for debug classification');
+      return worker;
+    });
+  }
+  return ocrReady;
+}
+
+async function bufferToNsfwTensor(buffer: Buffer): Promise<tf.Tensor3D> {
   const image = await Jimp.read(buffer);
+  image.resize(NSFW_INPUT_SIZE, NSFW_INPUT_SIZE);
   const { width, height } = image.bitmap;
   const rgb = new Float32Array(width * height * 3);
   let offset = 0;
@@ -42,42 +64,74 @@ async function bufferToTensor(buffer: Buffer): Promise<tf.Tensor3D> {
   return tf.tensor3d(rgb, [height, width, 3]);
 }
 
-export async function classifyImageBuffer(
-  buffer: Buffer,
-): Promise<{
-  labels: MlKitLabel[];
-  category: string;
-  riskScore: number;
-  topRiskLabels: string[];
-  categoryWeights: Record<string, number>;
-}> {
-  const net = await loadModel();
-  const tensor = await bufferToTensor(buffer);
+export interface DebugClassifyResult {
+  vision: {
+    labels: Record<string, number>;
+    riskScore: number;
+    category: string;
+  };
+  ocr: {
+    text: string;
+    riskScore: number;
+    category: string;
+    riskFlag: boolean;
+    matchedKeywords: string[];
+  };
+  combinedRiskScore: number;
+  finalCategory: string;
+  note: string;
+}
+
+async function runVisionClassification(buffer: Buffer): Promise<DebugClassifyResult['vision']> {
+  const model = await loadNsfwModel();
+  const tensor = await bufferToNsfwTensor(buffer);
 
   try {
-    const predictions = await net.classify(tensor);
-
-    const labels: MlKitLabel[] = predictions.slice(0, 10).map((p) => ({
-      label: p.className,
-      confidence: p.probability,
-    }));
-
-    const mapped = mapMlKitLabelsToRisk(labels);
-
-    const topRiskLabels = Object.entries(mapped.categoryWeights)
-      .filter(([, w]) => w > 0.1)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([cat]) => cat);
-
+    const predictions = await model.classify(tensor);
+    const mapped = mapNsfwPredictions(predictions);
     return {
-      labels,
-      category: mapped.category,
+      labels: mapped.labels,
       riskScore: mapped.riskScore,
-      topRiskLabels,
-      categoryWeights: mapped.categoryWeights,
+      category: mapped.category,
     };
   } finally {
     tensor.dispose();
   }
+}
+
+async function runOcrClassification(buffer: Buffer): Promise<DebugClassifyResult['ocr']> {
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(buffer);
+  const text = (data.text || '').trim();
+  const analyzed = analyzeText(text);
+
+  return {
+    text,
+    riskScore: analyzed.riskScore,
+    category: analyzed.category,
+    riskFlag: analyzed.riskFlag,
+    matchedKeywords: analyzed.matchedKeywords,
+  };
+}
+
+/**
+ * Full debug pipeline: nsfwjs vision + Tesseract OCR + combined risk (30% OCR / 70% vision).
+ */
+export async function classifyImageBuffer(buffer: Buffer): Promise<DebugClassifyResult> {
+  const [vision, ocr] = await Promise.all([
+    runVisionClassification(buffer),
+    runOcrClassification(buffer),
+  ]);
+
+  const combinedRiskScore = combineRiskScores(ocr.riskScore, vision.riskScore);
+  const finalCategory = resolveDebugFinalCategory(vision.category, ocr.category);
+
+  return {
+    vision,
+    ocr,
+    combinedRiskScore,
+    finalCategory,
+    note:
+      'Debug pipeline mirrors mobile: nsfwjs (on-device ML Kit equivalent) + OCR keyword filter, combined 30% OCR / 70% vision.',
+  };
 }

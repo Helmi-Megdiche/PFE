@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { classifyImageBuffer } from '../debug/classifyImage';
-import { toApiCategory } from '../utils/riskMapping';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -12,7 +11,7 @@ const upload = multer({
 
 /**
  * POST /api/debug/classify
- * Dev-only image upload for vision mapping demo (TensorFlow.js MobileNet).
+ * Dev-only: nsfwjs vision + Tesseract OCR + combined risk (same weights as mobile).
  */
 router.post(
   '/classify',
@@ -37,22 +36,15 @@ router.post(
       }
 
       const result = await classifyImageBuffer(buffer);
-      const apiCategory = toApiCategory(result.category);
 
       logger.info('Debug classify', {
-        category: apiCategory,
-        riskScore: result.riskScore,
-        labelCount: result.labels.length,
+        finalCategory: result.finalCategory,
+        combinedRiskScore: result.combinedRiskScore,
+        visionRisk: result.vision.riskScore,
+        ocrRisk: result.ocr.riskScore,
       });
 
-      res.json({
-        labels: result.labels,
-        category: apiCategory,
-        riskScore: result.riskScore,
-        topRiskLabels: result.topRiskLabels,
-        categoryWeights: result.categoryWeights,
-        note: 'Server-side MobileNet demo — on-device uses ML Kit with the same riskMapping.ts rules.',
-      });
+      res.json(result);
     } catch (err) {
       logger.error('Debug classify failed', {
         err: err instanceof Error ? err.message : String(err),
