@@ -1,10 +1,9 @@
 /**
- * NSFW vision layer — optional nsfwjs (when available) + ML Kit hentai proxy.
- * On RN 0.74 without @tensorflow/tfjs-react-native, nsfwjs load usually fails;
- * ML Kit anime/cartoon proxy + path hints fill the gap until TFLite/nsfwjs native bundle.
+ * NSFW vision layer — ML Kit hentai proxy + path hints (on-device).
+ * nsfwjs is used only on the backend debug endpoint; not bundled on mobile (RN 0.74).
  */
 
-import { scLog, scWarn } from '../utils/screenCaptureLogger';
+import { scLog } from '../utils/screenCaptureLogger';
 
 export interface NsfwProbabilities {
   porn: number;
@@ -14,7 +13,7 @@ export interface NsfwProbabilities {
   drawing: number;
 }
 
-export type NsfwSource = 'nsfwjs' | 'mlkit-proxy' | 'path-hint' | 'none';
+export type NsfwSource = 'mlkit-proxy' | 'path-hint';
 
 export interface NsfwInferenceResult {
   probabilities: NsfwProbabilities;
@@ -23,8 +22,6 @@ export interface NsfwInferenceResult {
   source: NsfwSource;
   forced: boolean;
 }
-
-const NSFW_LOAD_TIMEOUT_MS = 10_000;
 
 export function applyNsfwThresholds(probs: NsfwProbabilities): {
   riskScore: number;
@@ -42,7 +39,7 @@ export function applyNsfwThresholds(probs: NsfwProbabilities): {
   };
 }
 
-/** Infer NSFW probabilities from ML Kit labels when nsfwjs is unavailable. */
+/** Infer NSFW probabilities from ML Kit labels. */
 export function inferNsfwFromMlKitLabels(
   labels: Array<{ text: string; confidence: number }>,
 ): NsfwProbabilities {
@@ -63,7 +60,7 @@ export function inferNsfwFromMlKitLabels(
       drawing = Math.max(drawing, l.confidence);
     } else if (/person|portrait|selfie/.test(t)) {
       sexy = Math.max(sexy, l.confidence * 0.4);
-    } else if (/screenshot|text|document|landscape|sky|mountain|building/.test(t)) {
+    } else if (/screenshot|text|document|landscape|sky|mountain|building|lake|river|rock|poster/.test(t)) {
       neutral = Math.max(neutral, l.confidence);
     }
   }
@@ -79,37 +76,8 @@ function inferFromPathHints(imageUri: string, filePath?: string): NsfwProbabilit
   return null;
 }
 
-async function tryNsfwJsClassify(_imageUri: string): Promise<NsfwProbabilities | null> {
-  try {
-    // Optional: works only if nsfwjs + tfjs-react-native are added later
-    const nsfwjs = require('nsfwjs');
-    const tf = require('@tensorflow/tfjs');
-    await tf.ready();
-    // Real implementation would decode image to tensor — not available without native tfjs
-    void nsfwjs;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('nsfwjs timeout')), ms);
-    promise
-      .then((v) => {
-        clearTimeout(timer);
-        resolve(v);
-      })
-      .catch((e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-  });
-}
-
 /**
- * Run NSFW inference with 10s timeout; falls back to ML Kit proxy + path hints.
+ * On-device NSFW inference: path hints, then ML Kit label proxy.
  */
 export async function classifyNsfw(
   imageUri: string,
@@ -127,23 +95,6 @@ export async function classifyNsfw(
       source: 'path-hint',
       forced: t.forced,
     };
-  }
-
-  try {
-    const probs = await withTimeout(tryNsfwJsClassify(imageUri), NSFW_LOAD_TIMEOUT_MS);
-    if (probs) {
-      const t = applyNsfwThresholds(probs);
-      scLog('NSFW nsfwjs', t);
-      return {
-        probabilities: probs,
-        riskScore: t.riskScore,
-        category: t.category,
-        source: 'nsfwjs',
-        forced: t.forced,
-      };
-    }
-  } catch (err) {
-    scWarn('nsfwjs unavailable or timed out, using ML Kit proxy', err);
   }
 
   const proxy = inferNsfwFromMlKitLabels(mlKitLabels);

@@ -42,7 +42,11 @@ export function findHighRiskKeywords(text: string): string[] {
   const matched = new Set<string>();
 
   for (const kw of HIGH_RISK_KEYWORDS) {
-    if (normalized.includes(kw)) {
+    if (kw.length <= 3) {
+      if (new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text)) {
+        matched.add(kw);
+      }
+    } else if (normalized.includes(kw)) {
       matched.add(kw);
     }
   }

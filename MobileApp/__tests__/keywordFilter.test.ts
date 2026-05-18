@@ -10,6 +10,11 @@ describe('keywordFilter explicit content', () => {
     expect(result.riskFlag).toBe(true);
   });
 
+  it('does not match ass inside unrelated words like assir', () => {
+    const result = keywordFilter('9:02 assir 25 google.com/search');
+    expect(result.category).not.toBe('adult');
+  });
+
   it('scores adult OCR at least 70', () => {
     const result = keywordFilter('XXX Porn Adult');
     const score = computeOcrRiskScore(
