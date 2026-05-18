@@ -16,6 +16,7 @@ import {
 } from '../utils/riskCombination';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
+import { getCurrentForegroundApp, hasUsageAccess } from '../native/ForegroundApp';
 import type {
   CaptureCycleResult,
   ScreenEventPayload,
@@ -97,6 +98,30 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
 
       try {
+        let resolvedPackage = appPackage && appPackage !== 'unknown' ? appPackage : 'unknown';
+        let resolvedLabel: string | null = null;
+
+        if (Platform.OS === 'android') {
+          try {
+            const usageOk = await hasUsageAccess();
+            if (!usageOk) {
+              scWarn('Usage access not granted — open system settings to detect foreground app');
+            } else {
+              const fg = await getCurrentForegroundApp();
+              if (fg?.packageName) {
+                resolvedPackage = fg.packageName;
+                resolvedLabel = fg.appLabel ?? fg.packageName;
+                scLog('Foreground app', {
+                  package: resolvedPackage,
+                  label: resolvedLabel,
+                });
+              }
+            }
+          } catch (fgErr) {
+            scWarn('Foreground app detection failed', fgErr);
+          }
+        }
+
         const [ocrResult, imageClassification] = await Promise.all([
           TextRecognition.recognize(ocrInput),
           classifyImage(ocrInput, filePath),
@@ -114,7 +139,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         scLog('Image classification', {
           source: imageClassification.source,
-          imageRiskScore: imageClassification.imageRiskScore,
+          imageRiskScore,
           violence: imageClassification.violenceScore.toFixed(2),
           adult: imageClassification.adultScore.toFixed(2),
         });
@@ -124,23 +149,26 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           keywordResult.category,
           keywordResult.matchedKeywords.length,
         );
-        const combinedRiskScore = combineRiskScores(
-          ocrRiskScore,
-          imageClassification.imageRiskScore,
-        );
+        const imageRiskScore =
+          imageClassification.imageClassificationDetails?.imageRiskScore ??
+          imageClassification.imageRiskScore;
+
+        const combinedRiskScore = combineRiskScores(ocrRiskScore, imageRiskScore);
         const finalRiskFlag = combinedRiskScore > 50;
         const finalCategory = resolveCombinedCategory(
           imageClassification,
           keywordResult.category,
+          imageClassification.imageClassificationDetails?.mappedCategory,
         );
 
         const payload: ScreenEventPayload = {
           timestamp: new Date().toISOString(),
-          appPackage: appPackage || 'unknown',
+          appPackage: resolvedPackage,
+          appLabel: resolvedLabel,
           extractedTextPreview: preview,
           riskFlag: finalRiskFlag,
           riskScore: combinedRiskScore,
-          imageRiskScore: imageClassification.imageRiskScore,
+          imageRiskScore,
           combinedRiskScore,
           imageClassificationDetails: imageClassification.imageClassificationDetails,
           category: finalCategory,
@@ -148,7 +176,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         scLog('Combined risk', {
           ocrRiskScore,
-          imageRiskScore: imageClassification.imageRiskScore,
+          imageRiskScore,
           combinedRiskScore,
           finalRiskFlag,
           category: finalCategory,

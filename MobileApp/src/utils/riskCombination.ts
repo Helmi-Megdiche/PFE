@@ -43,7 +43,25 @@ export function combineRiskScores(
 export function resolveCombinedCategory(
   image: ImageClassificationScores,
   ocrCategory: RiskCategory,
+  mappedCategory?: string | null,
 ): VisionRiskCategory {
+  if (mappedCategory) {
+    const m = mappedCategory as VisionRiskCategory;
+    if (
+      [
+        'violent',
+        'adult',
+        'gore',
+        'dangerous_challenge',
+        'educational',
+        'neutral',
+        'toxic',
+      ].includes(m)
+    ) {
+      return m;
+    }
+  }
+
   if (image.violenceScore > 0.6) {
     return 'violent';
   }

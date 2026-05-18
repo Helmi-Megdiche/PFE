@@ -32,6 +32,9 @@ export interface ImageClassificationDetails {
   dangerousChallengeScore: number;
   educationalScore: number;
   imageRiskScore: number;
+  mappedCategory?: string;
+  topRiskLabels?: string[];
+  categoryWeights?: Record<string, number>;
   mlKitLabels?: Array<{ text: string; confidence: number }>;
   tfliteOutputs?: number[];
   mockHint?: string;

@@ -5,6 +5,7 @@ import screenEventsRoutes from './screenEvents.routes';
 import usageRoutes from './usage.routes';
 import scoresRoutes from './scores.routes';
 import devRoutes from './dev.routes';
+import debugRoutes from './debug.routes';
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.get('/health', (_req, res) => {
 /** Development helpers (JWT minting) — disabled in production. */
 if (!env.isProduction) {
   router.use('/dev', devRoutes);
+  router.use('/debug', debugRoutes);
 }
 
 /** All routes below require `Authorization: Bearer <JWT>`. */

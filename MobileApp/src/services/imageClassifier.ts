@@ -1,48 +1,28 @@
 /**
- * On-device image classification — Sprint 3.
- *
- * Pipeline: ML Kit Image Labeling → development mock.
- * TFLite (react-native-fast-tflite) is optional and requires RN 0.76+ / Nitro;
- * use ML Kit + mock on RN 0.74.5. See assets/models/README.md to add TFLite later.
+ * On-device image classification — ML Kit + shared riskMapping rules.
  */
 
 import type {
   ClassificationSource,
   ImageClassificationDetails,
   ImageClassificationResult,
-  ImageClassificationScores,
 } from '../types/imageClassification';
-import { computeImageRiskScore } from '../utils/riskCombination';
+import {
+  mapMlKitLabelsToRisk,
+  riskMappingToImageScores,
+  toApiCategory,
+} from '../utils/riskMapping';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
 
-const MLKIT_VIOLENCE = [
-  'weapon',
-  'gun',
-  'rifle',
-  'violence',
-  'fight',
-  'war',
-  'explosion',
-];
-const MLKIT_GORE = ['blood', 'injury', 'wound', 'surgery', 'horror'];
-const MLKIT_ADULT = ['nude', 'nudity', 'adult', 'lingerie', 'bikini', 'underwear'];
-const MLKIT_CHALLENGE = ['stunt', 'parkour', 'challenge', 'danger'];
-const MLKIT_EDUCATIONAL = [
-  'book',
-  'classroom',
-  'whiteboard',
-  'text',
-  'document',
-  'library',
-  'school',
-];
-
-function scoresToResult(
-  scores: ImageClassificationScores,
+function buildResult(
+  labels: Array<{ text: string; confidence: number }>,
   source: ClassificationSource,
-  details: Partial<ImageClassificationDetails>,
+  extra: Partial<ImageClassificationDetails>,
 ): ImageClassificationResult {
-  const imageRiskScore = computeImageRiskScore(scores);
+  const mlLabels = labels.map((l) => ({ label: l.text, confidence: l.confidence }));
+  const mapped = mapMlKitLabelsToRisk(mlLabels);
+  const scores = riskMappingToImageScores(mapped);
+
   const imageClassificationDetails: ImageClassificationDetails = {
     source,
     violenceScore: scores.violenceScore,
@@ -50,112 +30,43 @@ function scoresToResult(
     goreScore: scores.goreScore,
     dangerousChallengeScore: scores.dangerousChallengeScore,
     educationalScore: scores.educationalScore,
-    imageRiskScore,
-    ...details,
+    imageRiskScore: mapped.riskScore,
+    mappedCategory: toApiCategory(mapped.category),
+    topRiskLabels: mapped.topLabels,
+    categoryWeights: mapped.categoryWeights,
+    mlKitLabels: labels.slice(0, 15).map((l) => ({ text: l.text, confidence: l.confidence })),
+    ...extra,
   };
+
   return {
     ...scores,
-    imageRiskScore,
+    imageRiskScore: mapped.riskScore,
     source,
     imageClassificationDetails,
   };
 }
 
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-function educationalFromUnsafe(unsafe: ImageClassificationScores): number {
-  const maxUnsafe = Math.max(
-    unsafe.violenceScore,
-    unsafe.adultScore,
-    unsafe.goreScore,
-    unsafe.dangerousChallengeScore,
-  );
-  return clamp01(1 - maxUnsafe);
-}
-
-/** Development mock — path/filename heuristics + low random noise. */
 function classifyWithMock(imageUri: string, filePath?: string): ImageClassificationResult {
   const haystack = `${filePath ?? ''} ${imageUri}`.toLowerCase();
-  const scores: ImageClassificationScores = {
-    violenceScore: 0.05 + Math.random() * 0.08,
-    adultScore: 0.03 + Math.random() * 0.06,
-    goreScore: 0.03 + Math.random() * 0.06,
-    dangerousChallengeScore: 0.02 + Math.random() * 0.05,
-    educationalScore: 0.1,
-  };
-
-  let hint = 'default-low-risk';
+  const labels: Array<{ text: string; confidence: number }> = [
+    { text: 'screenshot', confidence: 0.5 },
+  ];
 
   if (haystack.includes('violence') || haystack.includes('violent')) {
-    scores.violenceScore = 0.85 + Math.random() * 0.1;
-    hint = 'filename-violence';
+    labels.push({ text: 'weapon', confidence: 0.9 });
   } else if (haystack.includes('blood') || haystack.includes('gore')) {
-    scores.goreScore = 0.88 + Math.random() * 0.1;
-    hint = 'filename-gore';
+    labels.push({ text: 'blood', confidence: 0.92 });
   } else if (haystack.includes('adult') || haystack.includes('nsfw')) {
-    scores.adultScore = 0.9 + Math.random() * 0.08;
-    hint = 'filename-adult';
-  } else if (
-    haystack.includes('challenge') ||
-    haystack.includes('dangerous') ||
-    haystack.includes('stunt')
-  ) {
-    scores.dangerousChallengeScore = 0.82 + Math.random() * 0.12;
-    hint = 'filename-challenge';
-  } else if (
-    haystack.includes('education') ||
-    haystack.includes('school') ||
-    haystack.includes('learn')
-  ) {
-    scores.educationalScore = 0.85 + Math.random() * 0.1;
-    scores.violenceScore = 0.02;
-    scores.adultScore = 0.02;
-    scores.goreScore = 0.02;
-    scores.dangerousChallengeScore = 0.02;
-    hint = 'filename-educational';
+    labels.push({ text: 'skin', confidence: 0.88 }, { text: 'underwear', confidence: 0.85 });
+  } else if (haystack.includes('education') || haystack.includes('school')) {
+    labels.push({ text: 'book', confidence: 0.85 });
+  } else if (haystack.includes('skin') && haystack.includes('hand')) {
+    labels.push({ text: 'skin', confidence: 0.9 }, { text: 'hand', confidence: 0.88 });
   }
 
-  scores.educationalScore = Math.max(scores.educationalScore, educationalFromUnsafe(scores));
-
-  return scoresToResult(scores, 'mock', { mockHint: hint });
-}
-
-function mapMlKitLabels(
-  labels: Array<{ text: string; confidence: number }>,
-): ImageClassificationScores {
-  const scores: ImageClassificationScores = {
-    violenceScore: 0,
-    adultScore: 0,
-    goreScore: 0,
-    dangerousChallengeScore: 0,
-    educationalScore: 0,
-  };
-
-  for (const label of labels) {
-    const text = label.text.toLowerCase();
-    const c = label.confidence;
-
-    if (MLKIT_VIOLENCE.some((k) => text.includes(k))) {
-      scores.violenceScore = Math.max(scores.violenceScore, c);
-    }
-    if (MLKIT_GORE.some((k) => text.includes(k))) {
-      scores.goreScore = Math.max(scores.goreScore, c);
-    }
-    if (MLKIT_ADULT.some((k) => text.includes(k))) {
-      scores.adultScore = Math.max(scores.adultScore, c);
-    }
-    if (MLKIT_CHALLENGE.some((k) => text.includes(k))) {
-      scores.dangerousChallengeScore = Math.max(scores.dangerousChallengeScore, c);
-    }
-    if (MLKIT_EDUCATIONAL.some((k) => text.includes(k))) {
-      scores.educationalScore = Math.max(scores.educationalScore, c);
-    }
-  }
-
-  scores.educationalScore = Math.max(scores.educationalScore, educationalFromUnsafe(scores));
-  return scores;
+  return buildResult(labels, 'mock', {
+    mockHint: haystack.slice(-40),
+  });
 }
 
 async function classifyWithMlKit(imageUri: string): Promise<ImageClassificationResult | null> {
@@ -170,26 +81,17 @@ async function classifyWithMlKit(imageUri: string): Promise<ImageClassificationR
       return null;
     }
 
-    const scores = mapMlKitLabels(labels);
     scLog('ML Kit image labels', {
       top: labels.slice(0, 5).map((l) => `${l.text}:${l.confidence.toFixed(2)}`),
     });
 
-    return scoresToResult(scores, 'mlkit', {
-      mlKitLabels: labels.slice(0, 15).map((l) => ({
-        text: l.text,
-        confidence: l.confidence,
-      })),
-    });
+    return buildResult(labels, 'mlkit', {});
   } catch (err) {
     scWarn('ML Kit image labeling failed', err);
     return null;
   }
 }
 
-/**
- * Classify a captured screenshot (non-blocking async).
- */
 export async function classifyImage(
   imageUri: string,
   filePath?: string,
@@ -203,7 +105,6 @@ export async function classifyImage(
   return classifyWithMock(imageUri, filePath);
 }
 
-/** Optional warm-up (ML Kit loads on first classify). */
 export function preloadImageClassifier(): void {
-  scLog('Image classifier ready (ML Kit + mock)');
+  scLog('Image classifier ready (ML Kit + riskMapping)');
 }

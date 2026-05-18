@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parental Control AI – Live Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .risk-high { color: #dc2626; font-weight: 600; }
+    .risk-low { color: #16a34a; }
+    .log-entry { font-family: ui-monospace, monospace; font-size: 0.75rem; }
+    #statusBanner.error { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+    #statusBanner.ok { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    #statusBanner.warn { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .badge-adult { background: #fee2e2; color: #991b1b; }
+    .badge-violent { background: #ffedd5; color: #9a3412; }
+    .badge-gore { background: #fce7f3; color: #9d174d; }
+    .badge-dangerous, .badge-dangerous_challenge { background: #fef3c7; color: #92400e; }
+    .badge-educational { background: #dbeafe; color: #1e40af; }
+    .badge-neutral { background: #f1f5f9; color: #475569; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+  <div class="max-w-7xl mx-auto p-4 md:p-6">
+    <header class="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900">Parental Control AI</h1>
+        <p class="text-slate-600 mt-1">Live demo dashboard — ESPRIT PFE (Sprint 1–3.5)</p>
+      </div>
+      <div class="flex flex-wrap gap-2 items-center">
+        <button id="btnRefresh" type="button" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
+          Refresh now
+        </button>
+        <button id="btnAuto" type="button" class="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 text-sm font-medium">
+          Stop auto-refresh
+        </button>
+        <span id="lastUpdated" class="text-xs text-slate-500"></span>
+      </div>
+    </header>
+
+    <div id="statusBanner" class="mb-4 rounded-lg border px-4 py-3 text-sm hidden"></div>
+
+    <!-- Config -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Connection</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="block">
+          <span class="text-sm text-slate-600">API base URL</span>
+          <input id="apiBase" type="text" value="http://localhost:3000"
+            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600">Child ID (seed)</span>
+          <input id="childId" type="text" value="33333333-3333-3333-3333-333333333333"
+            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-indigo-500" />
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600">Events limit</span>
+          <input id="eventsLimit" type="number" value="20" min="1" max="100"
+            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        </label>
+      </div>
+      <p class="text-xs text-slate-400 mt-2">Uses <code class="bg-slate-100 px-1 rounded">GET /api/dev/parent-token</code> then parent JWT for screen events &amp; scores.</p>
+    </section>
+
+    <!-- Vision Model Debug Tool -->
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-1">Vision Model Debug Tool</h2>
+      <p class="text-sm text-slate-500 mb-4">
+        Upload any image to <code class="bg-slate-100 px-1 rounded">POST /api/debug/classify</code>
+        (TensorFlow.js MobileNet + shared <code class="bg-slate-100 px-1 rounded">riskMapping.ts</code>).
+        Dev API only — same rules as on-device ML Kit.
+      </p>
+      <div class="flex flex-wrap gap-3 items-end">
+        <label class="block">
+          <span class="text-sm text-slate-600">Image file</span>
+          <input id="debugImage" type="file" accept="image/*"
+            class="mt-1 block text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-700" />
+        </label>
+        <button id="btnClassify" type="button"
+          class="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium">
+          Analyze
+        </button>
+        <span id="classifyStatus" class="text-sm text-slate-500"></span>
+      </div>
+      <div id="classifyPreview" class="mt-4 hidden">
+        <img id="classifyThumb" alt="Preview" class="max-h-40 rounded-lg border border-slate-200 mb-3" />
+        <div class="flex flex-wrap gap-3 items-center mb-3">
+          <span id="classifyBadge" class="inline-flex px-3 py-1 rounded-full text-sm font-semibold"></span>
+          <span class="text-sm text-slate-600">Risk score: <strong id="classifyRiskScore">—</strong>/100</span>
+          <span class="text-sm text-slate-600">Top risk: <span id="classifyTopRisk" class="font-mono text-xs">—</span></span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm border border-slate-200 rounded-lg">
+            <thead class="bg-slate-50 text-left text-slate-600">
+              <tr>
+                <th class="px-3 py-2 font-medium">#</th>
+                <th class="px-3 py-2 font-medium">Label</th>
+                <th class="px-3 py-2 font-medium">Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="classifyLabelsBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+        <p id="classifyNote" class="text-xs text-slate-400 mt-2"></p>
+      </div>
+    </section>
+
+    <!-- Summary cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6" id="summaryCards">
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Events today</p>
+        <p id="cardEventsToday" class="text-3xl font-bold mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Avg combined risk (today)</p>
+        <p id="cardAvgRisk" class="text-3xl font-bold mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Top category (today)</p>
+        <p id="cardTopCategory" class="text-3xl font-bold mt-1 capitalize">—</p>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <section class="bg-white rounded-xl shadow-sm border p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-3">Daily scores (last 7 days)</h2>
+      <p id="scoresEmpty" class="text-sm text-slate-500 hidden mb-2">No daily scores yet — run the cron job or insert test data in <code>daily_scores</code>.</p>
+      <div class="relative h-64">
+        <canvas id="scoresChart"></canvas>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Events table -->
+      <section class="lg:col-span-2 bg-white rounded-xl shadow-sm border p-4">
+        <h2 class="text-lg font-semibold mb-3">Recent screen events</h2>
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 text-left text-slate-600">
+              <tr>
+                <th class="px-3 py-2 font-medium">Time</th>
+                <th class="px-3 py-2 font-medium">App</th>
+                <th class="px-3 py-2 font-medium">Preview</th>
+                <th class="px-3 py-2 font-medium">Risk</th>
+                <th class="px-3 py-2 font-medium">Combined</th>
+                <th class="px-3 py-2 font-medium">Category</th>
+                <th class="px-3 py-2 font-medium">Image labels</th>
+              </tr>
+            </thead>
+            <tbody id="eventsBody" class="divide-y divide-slate-100">
+              <tr><td colspan="7" class="px-3 py-6 text-center text-slate-400">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Activity log -->
+      <section class="bg-white rounded-xl shadow-sm border p-4">
+        <h2 class="text-lg font-semibold mb-3">API activity (5 min)</h2>
+        <ul id="activityLog" class="space-y-1 max-h-96 overflow-y-auto text-slate-600">
+          <li class="log-entry text-slate-400">Waiting for first fetch…</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const DEFAULT_CHILD = '33333333-3333-3333-3333-333333333333';
+      const REFRESH_MS = 10_000;
+      const LOG_WINDOW_MS = 5 * 60 * 1000;
+
+      let parentToken = null;
+      let autoRefresh = true;
+      let refreshTimer = null;
+      let scoresChart = null;
+      const activityEntries = [];
+
+      const $ = (id) => document.getElementById(id);
+
+      function apiBase() {
+        return $('apiBase').value.replace(/\/$/, '');
+      }
+
+      function childId() {
+        return $('childId').value.trim() || DEFAULT_CHILD;
+      }
+
+      function showBanner(type, message) {
+        const el = $('statusBanner');
+        el.className = 'mb-4 rounded-lg border px-4 py-3 text-sm ' + type;
+        el.textContent = message;
+        el.classList.remove('hidden');
+      }
+
+      function hideBanner() {
+        $('statusBanner').classList.add('hidden');
+      }
+
+      function logActivity(method, path, status, detail) {
+        activityEntries.unshift({
+          at: Date.now(),
+          method,
+          path,
+          status,
+          detail: detail || '',
+        });
+        const cutoff = Date.now() - LOG_WINDOW_MS;
+        while (activityEntries.length && activityEntries[0].at < cutoff) {
+          activityEntries.pop();
+        }
+        const ul = $('activityLog');
+        if (!activityEntries.length) {
+          ul.innerHTML = '<li class="log-entry text-slate-400">No recent calls</li>';
+          return;
+        }
+        ul.innerHTML = activityEntries
+          .slice(0, 40)
+          .map((e) => {
+            const t = new Date(e.at).toLocaleTimeString();
+            const cls = e.status >= 200 && e.status < 300 ? 'text-green-700' : 'text-red-600';
+            return `<li class="log-entry"><span class="text-slate-400">${t}</span> <span class="${cls}">${e.method}</span> ${escapeHtml(e.path)} <span class="${cls}">${e.status}</span> ${escapeHtml(e.detail)}</li>`;
+          })
+          .join('');
+      }
+
+      function escapeHtml(s) {
+        if (!s) return '';
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function truncate(s, n) {
+        if (!s) return '';
+        return s.length <= n ? s : s.slice(0, n) + '…';
+      }
+
+      function formatTime(iso) {
+        try {
+          return new Date(iso).toLocaleString();
+        } catch {
+          return iso;
+        }
+      }
+
+      function isToday(iso) {
+        const d = new Date(iso);
+        const now = new Date();
+        return d.toDateString() === now.toDateString();
+      }
+
+      function imageLabels(details) {
+        if (!details || typeof details !== 'object') return '—';
+        const labels = details.mlKitLabels;
+        if (Array.isArray(labels) && labels.length) {
+          return labels
+            .slice(0, 3)
+            .map((l) => `${l.text || l.label || '?'}:${(l.confidence ?? 0).toFixed(2)}`)
+            .join(', ');
+        }
+        if (details.source === 'mock' && details.mockHint) {
+          return `mock:${details.mockHint}`;
+        }
+        return details.source || '—';
+      }
+
+      async function apiFetch(path, options = {}) {
+        const url = apiBase() + '/api' + path;
+        const headers = { Accept: 'application/json', ...(options.headers || {}) };
+        const res = await fetch(url, { ...options, headers });
+        logActivity(options.method || 'GET', path, res.status, res.ok ? 'OK' : res.statusText);
+        return res;
+      }
+
+      async function ensureParentToken() {
+        const res = await apiFetch('/dev/parent-token');
+        if (!res.ok) {
+          throw new Error('Parent token failed: HTTP ' + res.status);
+        }
+        const data = await res.json();
+        parentToken = data.token;
+        if (!parentToken) throw new Error('No token in parent-token response');
+        return parentToken;
+      }
+
+      async function fetchWithAuth(path) {
+        if (!parentToken) await ensureParentToken();
+        const res = await apiFetch(path, {
+          headers: { Authorization: 'Bearer ' + parentToken },
+        });
+        if (res.status === 401) {
+          parentToken = null;
+          await ensureParentToken();
+          return apiFetch(path, {
+            headers: { Authorization: 'Bearer ' + parentToken },
+          });
+        }
+        return res;
+      }
+
+      function updateSummary(events) {
+        const today = (events || []).filter((e) => isToday(e.timestamp));
+        $('cardEventsToday').textContent = String(today.length);
+
+        if (!today.length) {
+          $('cardAvgRisk').textContent = '—';
+          $('cardTopCategory').textContent = '—';
+          return;
+        }
+
+        const withScore = today.filter((e) => e.combinedRiskScore != null);
+        const avg =
+          withScore.length > 0
+            ? Math.round(
+                withScore.reduce((s, e) => s + Number(e.combinedRiskScore), 0) / withScore.length
+              )
+            : null;
+        $('cardAvgRisk').textContent = avg != null ? avg + '/100' : '—';
+        $('cardAvgRisk').className =
+          'text-3xl font-bold mt-1 ' + (avg != null && avg > 50 ? 'risk-high' : 'risk-low');
+
+        const counts = {};
+        today.forEach((e) => {
+          const c = e.category || 'neutral';
+          counts[c] = (counts[c] || 0) + 1;
+        });
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        $('cardTopCategory').textContent = top ? top[0] : '—';
+      }
+
+      function renderEvents(events) {
+        const tbody = $('eventsBody');
+        if (!events || !events.length) {
+          tbody.innerHTML =
+            '<tr><td colspan="7" class="px-3 py-8 text-center text-slate-400">No screen events yet. Start the mobile app with monitoring enabled.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = events
+          .map((e) => {
+            const risk = e.riskFlag
+              ? '<span class="risk-high">YES</span>'
+              : '<span class="risk-low">no</span>';
+            const combined = e.combinedRiskScore != null ? e.combinedRiskScore : '—';
+            const combinedCls =
+              Number(combined) > 50 ? 'risk-high font-semibold' : 'text-slate-700';
+            return `<tr class="hover:bg-slate-50">
+              <td class="px-3 py-2 whitespace-nowrap text-xs">${escapeHtml(formatTime(e.timestamp))}</td>
+              <td class="px-3 py-2 text-xs" title="${escapeHtml(e.appPackage || '')}">
+                <span class="font-medium">${escapeHtml(truncate(e.appLabel || e.appPackage || 'unknown', 18))}</span>
+                ${e.appLabel && e.appPackage && e.appPackage !== 'unknown'
+                  ? '<br><span class="font-mono text-slate-400">' + escapeHtml(truncate(e.appPackage, 22)) + '</span>'
+                  : ''}
+              </td>
+              <td class="px-3 py-2 max-w-xs text-xs" title="${escapeHtml(e.extractedTextPreview || '')}">${escapeHtml(truncate(e.extractedTextPreview, 60))}</td>
+              <td class="px-3 py-2">${risk}</td>
+              <td class="px-3 py-2 ${combinedCls}">${escapeHtml(String(combined))}</td>
+              <td class="px-3 py-2 capitalize text-xs">${escapeHtml(e.category || '—')}</td>
+              <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(imageLabels(e.imageClassificationDetails))}</td>
+            </tr>`;
+          })
+          .join('');
+      }
+
+      function renderScoresChart(scores) {
+        const empty = $('scoresEmpty');
+        const labels = [];
+        const addiction = [];
+        const wellbeing = [];
+
+        (scores || []).forEach((s) => {
+          labels.push(s.date);
+          addiction.push(s.addictionScore);
+          wellbeing.push(s.wellbeingScore);
+        });
+
+        if (!labels.length) {
+          empty.classList.remove('hidden');
+          if (scoresChart) {
+            scoresChart.destroy();
+            scoresChart = null;
+          }
+          return;
+        }
+        empty.classList.add('hidden');
+
+        const ctx = $('scoresChart').getContext('2d');
+        if (scoresChart) scoresChart.destroy();
+
+        scoresChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Addiction risk',
+                data: addiction,
+                borderColor: '#dc2626',
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                tension: 0.3,
+                fill: true,
+              },
+              {
+                label: 'Well-being',
+                data: wellbeing,
+                borderColor: '#16a34a',
+                backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                tension: 0.3,
+                fill: true,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { min: 0, max: 100, title: { display: true, text: 'Score (0–100)' } },
+            },
+            plugins: { legend: { position: 'bottom' } },
+          },
+        });
+      }
+
+      async function fetchScoresTrend() {
+        const id = childId();
+        const res = await fetchWithAuth(`/scores/${id}/trend?days=7`);
+        if (res.status === 404) {
+          return [];
+        }
+        if (!res.ok) {
+          throw new Error('Scores trend: HTTP ' + res.status);
+        }
+        const data = await res.json();
+        return data.scores || [];
+      }
+
+      async function fetchScoresFallback() {
+        const id = childId();
+        const results = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().slice(0, 10);
+          const res = await fetchWithAuth(`/scores/${id}?date=${dateStr}`);
+          if (res.ok) {
+            const row = await res.json();
+            results.push(row);
+          }
+        }
+        return results;
+      }
+
+      async function fetchScreenEvents() {
+        const id = childId();
+        const limit = Math.min(100, Math.max(1, parseInt($('eventsLimit').value, 10) || 20));
+        const res = await fetchWithAuth(`/screen-events/${id}?limit=${limit}`);
+        if (!res.ok) {
+          throw new Error('Screen events: HTTP ' + res.status);
+        }
+        const data = await res.json();
+        return data.events || [];
+      }
+
+      async function refreshAll() {
+        $('btnRefresh').disabled = true;
+        try {
+          hideBanner();
+          await ensureParentToken();
+
+          const [events, scores] = await Promise.all([
+            fetchScreenEvents(),
+            fetchScoresTrend().catch(async () => fetchScoresFallback()),
+          ]);
+
+          renderEvents(events);
+          updateSummary(events);
+          renderScoresChart(scores);
+
+          showBanner('ok', 'Connected — ' + events.length + ' events loaded, ' + scores.length + ' score days.');
+          $('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        } catch (err) {
+          console.error(err);
+          showBanner(
+            'error',
+            'Backend unreachable or API error: ' + (err.message || String(err)) +
+              '. Is the API running on ' + apiBase() + '?'
+          );
+          $('eventsBody').innerHTML =
+            '<tr><td colspan="7" class="px-3 py-6 text-center text-red-600">Failed to load data</td></tr>';
+        } finally {
+          $('btnRefresh').disabled = false;
+        }
+      }
+
+      function scheduleAuto() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        if (autoRefresh) {
+          refreshTimer = setInterval(refreshAll, REFRESH_MS);
+        }
+      }
+
+      function classifyBadgeClass(category) {
+        const c = (category || 'neutral').toLowerCase().replace(/\s+/g, '_');
+        return 'badge-' + c.split('_')[0];
+      }
+
+      async function classifyDebugImage() {
+        const input = $('debugImage');
+        const file = input.files && input.files[0];
+        if (!file) {
+          $('classifyStatus').textContent = 'Choose an image first.';
+          return;
+        }
+
+        $('btnClassify').disabled = true;
+        $('classifyStatus').textContent = 'Analyzing…';
+        $('classifyPreview').classList.add('hidden');
+
+        const thumbUrl = URL.createObjectURL(file);
+        $('classifyThumb').src = thumbUrl;
+
+        try {
+          const fd = new FormData();
+          fd.append('image', file);
+          const res = await fetch(apiBase() + '/api/debug/classify', { method: 'POST', body: fd });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.error || data.details || 'HTTP ' + res.status);
+          }
+
+          const cat = data.category || 'neutral';
+          const badge = $('classifyBadge');
+          badge.textContent = cat;
+          badge.className =
+            'inline-flex px-3 py-1 rounded-full text-sm font-semibold ' + classifyBadgeClass(cat);
+          $('classifyRiskScore').textContent = String(data.riskScore ?? '—');
+          $('classifyTopRisk').textContent = (data.topRiskLabels || []).join(', ') || '—';
+
+          const labels = data.labels || [];
+          $('classifyLabelsBody').innerHTML = labels
+            .map(
+              (l, i) =>
+                `<tr><td class="px-3 py-1">${i + 1}</td>` +
+                `<td class="px-3 py-1">${escapeHtml(l.label)}</td>` +
+                `<td class="px-3 py-1">${(Number(l.confidence) * 100).toFixed(1)}%</td></tr>`
+            )
+            .join('');
+
+          $('classifyNote').textContent = data.note || '';
+          $('classifyPreview').classList.remove('hidden');
+          $('classifyStatus').textContent = 'Done — ' + labels.length + ' labels.';
+          logActivity('POST', '/api/debug/classify', res.status);
+        } catch (err) {
+          $('classifyStatus').textContent = 'Error: ' + (err.message || String(err));
+          logActivity('POST', '/api/debug/classify', 0, err.message);
+        } finally {
+          URL.revokeObjectURL(thumbUrl);
+          $('btnClassify').disabled = false;
+        }
+      }
+
+      $('btnClassify').addEventListener('click', classifyDebugImage);
+
+      $('btnRefresh').addEventListener('click', refreshAll);
+
+      $('btnAuto').addEventListener('click', () => {
+        autoRefresh = !autoRefresh;
+        $('btnAuto').textContent = autoRefresh ? 'Stop auto-refresh' : 'Start auto-refresh';
+        scheduleAuto();
+      });
+
+      $('apiBase').addEventListener('change', () => {
+        parentToken = null;
+        refreshAll();
+      });
+
+      refreshAll();
+      scheduleAuto();
+    })();
+  </script>
+</body>
+</html>

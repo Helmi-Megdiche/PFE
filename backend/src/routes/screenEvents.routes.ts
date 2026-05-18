@@ -19,6 +19,7 @@ interface ScreenEventRow {
   child_id: string;
   timestamp: string;
   app_package: string;
+  app_label: string | null;
   extracted_text_preview: string;
   risk_flag: boolean;
   risk_score: number | null;
@@ -42,6 +43,7 @@ router.post(
     const {
       timestamp,
       appPackage,
+      appLabel,
       extractedTextPreview,
       riskFlag,
       riskScore,
@@ -54,17 +56,18 @@ router.post(
     try {
       const { rows } = await query<ScreenEventRow>(
         `INSERT INTO screen_events (
-          child_id, timestamp, app_package, extracted_text_preview,
+          child_id, timestamp, app_package, app_label, extracted_text_preview,
           risk_flag, risk_score, image_risk_score, image_classification_json,
           combined_risk_score, category
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, child_id, timestamp, app_package, extracted_text_preview,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        RETURNING id, child_id, timestamp, app_package, app_label, extracted_text_preview,
                   risk_flag, risk_score, image_risk_score, image_classification_json,
                   combined_risk_score, category, created_at`,
         [
           childId,
           timestamp,
           appPackage,
+          appLabel ?? null,
           extractedTextPreview,
           riskFlag,
           riskScore ?? null,
@@ -92,6 +95,7 @@ router.post(
         childId: event.child_id,
         timestamp: event.timestamp,
         appPackage: event.app_package,
+        appLabel: event.app_label,
         extractedTextPreview: event.extracted_text_preview,
         riskFlag: event.risk_flag,
         riskScore: event.risk_score,
@@ -125,7 +129,7 @@ router.get(
 
     try {
       const { rows } = await query<ScreenEventRow>(
-        `SELECT id, child_id, timestamp, app_package, extracted_text_preview,
+        `SELECT id, child_id, timestamp, app_package, app_label, extracted_text_preview,
                 risk_flag, risk_score, image_risk_score, image_classification_json,
                 combined_risk_score, category, created_at
          FROM screen_events
@@ -141,6 +145,7 @@ router.get(
           id: e.id,
           timestamp: e.timestamp,
           appPackage: e.app_package,
+          appLabel: e.app_label,
           extractedTextPreview: e.extracted_text_preview,
           riskFlag: e.risk_flag,
           riskScore: e.risk_score,

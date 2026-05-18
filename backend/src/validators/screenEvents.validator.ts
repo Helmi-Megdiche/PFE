@@ -3,6 +3,7 @@ import Joi from 'joi';
 export const createScreenEventSchema = Joi.object({
   timestamp: Joi.date().iso().required(),
   appPackage: Joi.string().max(255).required(),
+  appLabel: Joi.string().max(255).optional().allow(null, ''),
   extractedTextPreview: Joi.string().max(500).allow('').default(''),
   riskFlag: Joi.boolean().required(),
   riskScore: Joi.number().min(0).max(100).optional().allow(null),

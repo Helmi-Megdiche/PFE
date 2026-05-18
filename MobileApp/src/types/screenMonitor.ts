@@ -11,6 +11,7 @@ export type RiskCategory =
 export interface ScreenEventPayload {
   timestamp: string;
   appPackage: string;
+  appLabel?: string | null;
   extractedTextPreview: string;
   riskFlag: boolean;
   riskScore?: number | null;
