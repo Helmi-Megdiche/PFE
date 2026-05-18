@@ -10,7 +10,7 @@ import { keywordFilter } from '../utils/keywordFilter';
 import { classifyImage } from '../services/imageClassifier';
 import { postScreenEvent } from '../services/screenEventsApi';
 import {
-  combineRiskScores,
+  applyExplicitOcrBoost,
   computeOcrRiskScore,
   resolveCombinedCategory,
 } from '../utils/riskCombination';
@@ -149,11 +149,18 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           keywordResult.category,
           keywordResult.matchedKeywords.length,
         );
-        const imageRiskScore =
+        let imageRiskScore =
           imageClassification.imageClassificationDetails?.imageRiskScore ??
           imageClassification.imageRiskScore;
 
-        const combinedRiskScore = combineRiskScores(ocrRiskScore, imageRiskScore);
+        const boosted = applyExplicitOcrBoost(
+          ocrRiskScore,
+          imageRiskScore,
+          keywordResult.category,
+          imageClassification.adultScore,
+        );
+        imageRiskScore = boosted.imageRiskScore;
+        const combinedRiskScore = boosted.combinedRiskScore;
         const finalRiskFlag = combinedRiskScore > 50;
         const finalCategory = resolveCombinedCategory(
           imageClassification,

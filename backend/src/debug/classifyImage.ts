@@ -4,11 +4,12 @@ import * as nsfwjs from 'nsfwjs';
 import Jimp from 'jimp';
 import { createWorker, type Worker } from 'tesseract.js';
 import { analyzeText } from '../utils/keywordFilter';
-import { combineRiskScores, resolveDebugFinalCategory } from '../utils/riskCombination';
+import { applyExplicitContentOverride } from '../utils/riskCombination';
 import { mapNsfwPredictions } from './nsfwVision';
 import { logger } from '../utils/logger';
 
 const NSFW_INPUT_SIZE = 224;
+const OCR_TARGET_WIDTH = 800;
 
 let backendReady: Promise<void> | null = null;
 let nsfwModel: nsfwjs.NSFWJS | null = null;
@@ -48,6 +49,26 @@ async function getOcrWorker(): Promise<Worker> {
     });
   }
   return ocrReady;
+}
+
+/**
+ * Grayscale, resize, and contrast boost for clearer Tesseract extraction.
+ */
+export async function preprocessForOcr(buffer: Buffer): Promise<Buffer> {
+  const image = await Jimp.read(buffer);
+  const w = image.bitmap.width;
+
+  if (w < OCR_TARGET_WIDTH) {
+    image.resize(OCR_TARGET_WIDTH, Jimp.AUTO);
+  } else if (w > OCR_TARGET_WIDTH) {
+    image.resize(OCR_TARGET_WIDTH, Jimp.AUTO);
+  }
+
+  image.greyscale();
+  image.contrast(0.35);
+  image.normalize();
+
+  return image.getBufferAsync(Jimp.MIME_PNG);
 }
 
 async function bufferToNsfwTensor(buffer: Buffer): Promise<tf.Tensor3D> {
@@ -99,10 +120,15 @@ async function runVisionClassification(buffer: Buffer): Promise<DebugClassifyRes
   }
 }
 
-async function runOcrClassification(buffer: Buffer): Promise<DebugClassifyResult['ocr']> {
+async function extractTextFromImage(buffer: Buffer): Promise<string> {
+  const preprocessed = await preprocessForOcr(buffer);
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(buffer);
-  const text = (data.text || '').trim();
+  const { data } = await worker.recognize(preprocessed);
+  return (data.text || '').trim();
+}
+
+async function runOcrClassification(buffer: Buffer): Promise<DebugClassifyResult['ocr']> {
+  const text = await extractTextFromImage(buffer);
   const analyzed = analyzeText(text);
 
   return {
@@ -118,20 +144,26 @@ async function runOcrClassification(buffer: Buffer): Promise<DebugClassifyResult
  * Full debug pipeline: nsfwjs vision + Tesseract OCR + combined risk (30% OCR / 70% vision).
  */
 export async function classifyImageBuffer(buffer: Buffer): Promise<DebugClassifyResult> {
-  const [vision, ocr] = await Promise.all([
+  const [visionRaw, ocr] = await Promise.all([
     runVisionClassification(buffer),
     runOcrClassification(buffer),
   ]);
 
-  const combinedRiskScore = combineRiskScores(ocr.riskScore, vision.riskScore);
-  const finalCategory = resolveDebugFinalCategory(vision.category, ocr.category);
+  const overridden = applyExplicitContentOverride(
+    { category: visionRaw.category, riskScore: visionRaw.riskScore },
+    { category: ocr.category, riskScore: ocr.riskScore },
+  );
 
   return {
-    vision,
+    vision: {
+      labels: visionRaw.labels,
+      riskScore: overridden.vision.riskScore,
+      category: overridden.vision.category,
+    },
     ocr,
-    combinedRiskScore,
-    finalCategory,
+    combinedRiskScore: overridden.combinedRiskScore,
+    finalCategory: overridden.finalCategory,
     note:
-      'Debug pipeline mirrors mobile: nsfwjs (on-device ML Kit equivalent) + OCR keyword filter, combined 30% OCR / 70% vision.',
+      'Debug pipeline: nsfwjs + OCR keyword filter (explicit terms boost to adult ≥70). OCR override when vision misclassifies.',
   };
 }

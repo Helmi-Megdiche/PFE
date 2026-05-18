@@ -12,6 +12,9 @@ export function computeOcrRiskScore(
   category: RiskCategory,
   matchedCount: number,
 ): number {
+  if (category === 'adult') {
+    return Math.min(100, Math.max(70, 50 + matchedCount * 12));
+  }
   if (riskFlag) {
     return Math.min(100, 50 + matchedCount * 12);
   }
@@ -38,6 +41,29 @@ export function combineRiskScores(
   return Math.round(
     Math.min(100, Math.max(0, ocrRiskScore * OCR_WEIGHT + imageRiskScore * IMAGE_WEIGHT)),
   );
+}
+
+/**
+ * Boost combined score when OCR finds explicit adult keywords but vision stayed neutral.
+ */
+export function applyExplicitOcrBoost(
+  ocrRiskScore: number,
+  imageRiskScore: number,
+  ocrCategory: RiskCategory,
+  imageAdultScore: number,
+): { combinedRiskScore: number; imageRiskScore: number } {
+  let adjustedImage = imageRiskScore;
+
+  if (ocrCategory === 'adult' && ocrRiskScore > 50 && imageAdultScore < 0.3) {
+    adjustedImage = Math.max(adjustedImage, 70);
+  }
+
+  let combinedRiskScore = combineRiskScores(ocrRiskScore, adjustedImage);
+  if (ocrCategory === 'adult') {
+    combinedRiskScore = Math.max(combinedRiskScore, 70);
+  }
+
+  return { combinedRiskScore, imageRiskScore: adjustedImage };
 }
 
 export function resolveCombinedCategory(
@@ -76,6 +102,9 @@ export function resolveCombinedCategory(
   }
   if (image.educationalScore > 0.7) {
     return 'educational';
+  }
+  if (ocrCategory === 'adult') {
+    return 'adult';
   }
   if (ocrCategory === 'toxic') {
     return 'toxic';

@@ -8,6 +8,9 @@ export function computeOcrRiskScore(
   category: string,
   matchedCount: number,
 ): number {
+  if (category === 'adult') {
+    return Math.min(100, Math.max(70, 50 + matchedCount * 12));
+  }
   if (riskFlag) {
     return Math.min(100, 50 + matchedCount * 12);
   }
@@ -38,5 +41,53 @@ export function resolveDebugFinalCategory(
   if (VISION_PRIORITY.has(visionCategory)) {
     return visionCategory;
   }
+  if (ocrCategory === 'adult') {
+    return 'adult';
+  }
   return ocrCategory || 'neutral';
+}
+
+export interface VisionOcrRiskSlice {
+  category: string;
+  riskScore: number;
+}
+
+/**
+ * When OCR detects explicit adult text but vision is neutral/low, boost vision + combined score.
+ */
+export function applyExplicitContentOverride(
+  vision: VisionOcrRiskSlice,
+  ocr: VisionOcrRiskSlice,
+): {
+  vision: VisionOcrRiskSlice;
+  ocr: VisionOcrRiskSlice;
+  combinedRiskScore: number;
+  finalCategory: string;
+} {
+  let adjustedVision = { ...vision };
+  const adjustedOcr = { ...ocr };
+
+  if (adjustedOcr.category === 'adult' && adjustedOcr.riskScore > 50) {
+    if (adjustedVision.category === 'neutral' && adjustedVision.riskScore < 30) {
+      adjustedVision = {
+        category: 'adult',
+        riskScore: Math.max(adjustedVision.riskScore, 70),
+      };
+    }
+  }
+
+  let combinedRiskScore = combineRiskScores(adjustedOcr.riskScore, adjustedVision.riskScore);
+  let finalCategory = resolveDebugFinalCategory(adjustedVision.category, adjustedOcr.category);
+
+  if (adjustedOcr.category === 'adult') {
+    finalCategory = 'adult';
+    combinedRiskScore = Math.max(combinedRiskScore, 70);
+  }
+
+  return {
+    vision: adjustedVision,
+    ocr: adjustedOcr,
+    combinedRiskScore,
+    finalCategory,
+  };
 }
