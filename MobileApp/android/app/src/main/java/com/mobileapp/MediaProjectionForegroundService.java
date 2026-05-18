@@ -25,7 +25,14 @@ public class MediaProjectionForegroundService extends Service {
         super.onCreate();
         createNotificationChannel();
         Notification notification = buildNotification();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                            | ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            );
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                     NOTIFICATION_ID,
                     notification,

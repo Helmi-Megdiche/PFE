@@ -349,23 +349,17 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
     }
 
   // ---------------------------------------------------------------------------
-  // Lifecycle — auto-pause in background
+  // Lifecycle — keep capturing in background (FGS + MediaProjection)
   // ---------------------------------------------------------------------------
 
     @Override
     public void onHostResume() {
-        if (isRunning.get() && isPaused.get()) {
-            isPaused.set(false);
-            scheduleCaptureLoop();
-        }
+        // Do not pause/resume capture when React host resumes — monitoring stays continuous.
     }
 
     @Override
     public void onHostPause() {
-        if (isRunning.get()) {
-            isPaused.set(true);
-            cancelCaptureLoop();
-        }
+        // Do not pause when app goes to background — foreground service keeps projection alive.
     }
 
     @Override
@@ -412,15 +406,10 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
         captureLoopRunnable = null;
     }
 
-  /** Battery, screen off, or no foreground Activity. */
+  /** Battery critically low or device screen off — not foreground Activity. */
     private boolean shouldSkipCapture() {
         if (getBatteryPercent() < MIN_BATTERY_PERCENT) {
             Log.d(TAG, "Skipping capture — battery below " + MIN_BATTERY_PERCENT + "%");
-            return true;
-        }
-        Activity activity = getCurrentActivity();
-        if (activity == null) {
-            Log.d(TAG, "Skipping capture — no foreground Activity");
             return true;
         }
         PowerManager pm = (PowerManager) reactContext.getSystemService(Context.POWER_SERVICE);

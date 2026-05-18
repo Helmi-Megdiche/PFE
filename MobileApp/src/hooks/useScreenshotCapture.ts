@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import getScreenCaptureModule, {
   screenCaptureEmitter,
@@ -60,7 +60,6 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const isProcessingRef = useRef(false);
   const isStartingRef = useRef(false);
   const isMonitoringRef = useRef(false);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     isMonitoringRef.current = isMonitoring;
@@ -348,21 +347,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     };
   }, [onCycleComplete, processCapturedFrame]);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      scLog('AppState', { next });
-      appStateRef.current = next;
-      if (!isMonitoring) {
-        return;
-      }
-      if (next === 'active') {
-        void resumeCapture();
-      } else if (next === 'background' || next === 'inactive') {
-        void pauseCapture();
-      }
-    });
-    return () => sub.remove();
-  }, [isMonitoring, pauseCapture, resumeCapture]);
+  // Continuous monitoring: no pause/resume on AppState — native FGS keeps MediaProjection alive.
 
   useEffect(() => {
     return () => {
