@@ -18,8 +18,26 @@ describe('debug pipeline (pure functions)', () => {
       { className: 'Neutral', probability: 0.05 },
     ]);
     expect(vision.category).toBe('adult');
-    expect(vision.riskScore).toBe(95);
+    expect(vision.riskScore).toBe(100);
     expect(vision.labels.porn).toBe(0.85);
+  });
+
+  it('forces adult when hentai exceeds threshold', () => {
+    const vision = mapNsfwPredictions([
+      { className: 'Hentai', probability: 0.65 },
+      { className: 'Drawing', probability: 0.3 },
+    ]);
+    expect(vision.category).toBe('adult');
+    expect(vision.riskScore).toBe(100);
+  });
+
+  it('maps gun ML Kit labels to violent category', () => {
+    const { mapMlKitLabelsToRisk } = require('../src/utils/riskMapping');
+    const mapped = mapMlKitLabelsToRisk([
+      { label: 'Gun', confidence: 0.9 },
+    ]);
+    expect(mapped.category).toBe('violent');
+    expect(mapped.riskScore).toBeGreaterThanOrEqual(70);
   });
 
   it('maps neutral nsfwjs output to low vision risk', () => {

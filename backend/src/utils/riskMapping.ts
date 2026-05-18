@@ -28,48 +28,56 @@ interface CategoryRule {
   keywords: string[];
 }
 
+const WEAPONS_KEYWORDS = [
+  'gun', 'rifle', 'pistol', 'revolver', 'knife', 'sword', 'blade', 'weapon',
+  'explosion', 'bomb', 'grenade', 'tank', 'military', 'combat', 'ammunition',
+  'firearm', 'shotgun', 'missile', 'war', 'soldier',
+];
+
+const DRUGS_KEYWORDS = [
+  'syringe', 'needle', 'pill', 'capsule', 'cigarette', 'cigar', 'smoking',
+  'alcohol', 'beer', 'wine', 'bottle', 'drug', 'cannabis', 'marijuana',
+  'cocaine', 'heroin', 'meth', 'vape', 'liquor', 'whiskey',
+];
+
+const GORE_KEYWORDS = [
+  'blood', 'injury', 'wound', 'corpse', 'dead', 'skeleton', 'gore', 'guts',
+  'horror', 'skull', 'mutilation', 'autopsy',
+];
+
+const ADULT_KEYWORDS = [
+  'skin', 'underwear', 'bikini', 'nude', 'lingerie', 'cleavage', 'erotic',
+  'breast', 'buttocks', 'genital', 'penis', 'vagina', 'flesh', 'muscle', 'torso',
+  'porn', 'xxx', 'nsfw', 'sex', 'adult', 'naked', 'hentai', 'erotica', 'fetish',
+];
+
 const CATEGORY_RULES: CategoryRule[] = [
-  {
-    id: 'adult',
-    weight: 1.0,
-    keywords: [
-      'skin',
-      'underwear',
-      'bikini',
-      'nude',
-      'lingerie',
-      'cleavage',
-      'erotic',
-      'breast',
-      'buttocks',
-      'genital',
-      'penis',
-      'vagina',
-      'flesh',
-      'muscle',
-      'torso',
-    ],
-  },
-  {
-    id: 'violent',
-    weight: 1.0,
-    keywords: ['weapon', 'gun', 'knife', 'sword', 'fight', 'explosion', 'riot'],
-  },
-  {
-    id: 'gore',
-    weight: 0.9,
-    keywords: ['blood', 'injury', 'corpse', 'skeleton', 'guts', 'wound', 'horror'],
-  },
+  { id: 'adult', weight: 1.0, keywords: ADULT_KEYWORDS },
+  { id: 'violent', weight: 1.0, keywords: WEAPONS_KEYWORDS },
+  { id: 'gore', weight: 0.9, keywords: GORE_KEYWORDS },
   {
     id: 'dangerous',
-    weight: 0.8,
-    keywords: ['fire', 'jump', 'cliff', 'syringe', 'pills', 'razor', 'stunt', 'challenge'],
+    weight: 0.9,
+    keywords: [
+      ...DRUGS_KEYWORDS,
+      'fire', 'jump', 'cliff', 'razor', 'stunt', 'suicide', 'cutting', 'self-harm',
+      'challenge', 'overdose',
+    ],
   },
   {
     id: 'educational',
     weight: -0.5,
     keywords: ['book', 'classroom', 'science', 'blackboard', 'library', 'school', 'whiteboard'],
   },
+];
+
+export const CATEGORY_PRIORITY: RiskMapCategory[] = [
+  'educational',
+  'neutral',
+  'dangerous',
+  'gore',
+  'violent',
+  'adult',
 ];
 
 function matchesKeyword(labelText: string, keyword: string): boolean {
@@ -94,6 +102,21 @@ export function toApiCategory(category: RiskMapCategory | string): string {
     return 'dangerous_challenge';
   }
   return category;
+}
+
+export function pickHighestRiskCategory(
+  categoryWeights: Record<string, number>,
+): RiskMapCategory {
+  let best: RiskMapCategory = 'neutral';
+  let bestWeight = 0;
+  for (const cat of CATEGORY_PRIORITY) {
+    const w = categoryWeights[cat] ?? 0;
+    if (w > bestWeight) {
+      bestWeight = w;
+      best = cat;
+    }
+  }
+  return bestWeight >= 0.15 ? best : 'neutral';
 }
 
 export function mapMlKitLabelsToRisk(labels: MlKitLabel[]): RiskMappingResult {
@@ -127,28 +150,39 @@ export function mapMlKitLabelsToRisk(labels: MlKitLabel[]): RiskMappingResult {
     contributingLabels.push('heuristic:skin+hand');
   }
 
+  const animeLike = labels.find((l) =>
+    /anime|cartoon|comic|manga|illustration|drawing/i.test(l.label),
+  );
+  if (animeLike && animeLike.confidence > 0.55) {
+    categoryWeights.adult = Math.max(categoryWeights.adult, animeLike.confidence * 0.85);
+    contributingLabels.push(`heuristic:anime-proxy:${animeLike.confidence.toFixed(2)}`);
+  }
+
   let riskScore = 0;
   for (const rule of CATEGORY_RULES) {
     riskScore += (categoryWeights[rule.id] ?? 0) * 100;
   }
   riskScore = clampScore(riskScore);
 
-  const positiveCategories: RiskMapCategory[] = ['adult', 'violent', 'gore', 'dangerous'];
-  let category: RiskMapCategory = 'neutral';
-  let maxWeight = 0;
-  for (const cat of positiveCategories) {
-    const w = categoryWeights[cat] ?? 0;
-    if (w > maxWeight) {
-      maxWeight = w;
-      category = cat;
-    }
+  let category = pickHighestRiskCategory(categoryWeights);
+  const eduStrength = Math.abs(categoryWeights.educational ?? 0);
+  const maxPositive = Math.max(
+    categoryWeights.adult ?? 0,
+    categoryWeights.violent ?? 0,
+    categoryWeights.gore ?? 0,
+    categoryWeights.dangerous ?? 0,
+  );
+  if (maxPositive < 0.15 && eduStrength > 0.2) {
+    category = 'educational';
+  } else if (maxPositive < 0.15) {
+    category = 'neutral';
   }
 
-  const eduStrength = Math.abs(categoryWeights.educational ?? 0);
-  if (maxWeight < 0.15 && eduStrength > 0.2) {
-    category = 'educational';
-  } else if (maxWeight < 0.15) {
-    category = 'neutral';
+  if (riskScore >= 50 && category === 'neutral') {
+    category = pickHighestRiskCategory(categoryWeights);
+    if (category === 'neutral' || category === 'educational') {
+      category = 'adult';
+    }
   }
 
   const topLabels = labels
@@ -157,10 +191,5 @@ export function mapMlKitLabelsToRisk(labels: MlKitLabel[]): RiskMappingResult {
     .slice(0, 10)
     .map((l) => l.label);
 
-  return {
-    category,
-    riskScore,
-    topLabels,
-    categoryWeights,
-  };
+  return { category, riskScore, topLabels, categoryWeights };
 }

@@ -36,6 +36,8 @@ export interface ImageClassificationDetails {
   topRiskLabels?: string[];
   categoryWeights?: Record<string, number>;
   mlKitLabels?: Array<{ text: string; confidence: number }>;
+  nsfwSource?: string;
+  nsfwProbabilities?: Record<string, number>;
   tfliteOutputs?: number[];
   mockHint?: string;
 }

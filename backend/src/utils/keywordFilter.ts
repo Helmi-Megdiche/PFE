@@ -17,26 +17,21 @@ export interface KeywordFilterResult {
 
 /** Explicit terms — checked first; overrides other categories (mirrors mobile). */
 export const HIGH_RISK_KEYWORDS: readonly string[] = [
-  'porn',
-  'xxx',
-  'nsfw',
-  'sex',
-  'adult',
-  'nude',
-  'naked',
-  'fuck',
-  'bitch',
-  'shit',
-  'ass',
-  'dick',
-  'pussy',
-  'orgy',
-  'cum',
-  'blowjob',
-  'hentai',
+  'porn', 'xxx', 'nsfw', 'sex', 'adult', 'nude', 'naked', 'fuck', 'bitch',
+  'shit', 'ass', 'dick', 'pussy', 'orgy', 'cum', 'blowjob', 'hentai',
+  'loli', 'pedo', 'pedophile',
 ];
 
-const HIGH_RISK_BOUNDARY_REGEX = /\b(porn|sex|adult|nude|xxx|nsfw|fuck|hentai)\b/i;
+export const VIOLENT_TEXT_KEYWORDS: readonly string[] = [
+  'gun', 'rifle', 'pistol', 'weapon', 'knife', 'bomb', 'grenade', 'shoot', 'kill',
+];
+
+export const DRUG_TEXT_KEYWORDS: readonly string[] = [
+  'drug', 'cocaine', 'heroin', 'meth', 'syringe', 'overdose', 'weed', 'marijuana',
+];
+
+const HIGH_RISK_BOUNDARY_REGEX =
+  /\b(porn|sex|adult|nude|xxx|nsfw|fuck|hentai|gun|drug|weapon)\b/i;
 
 const RISK_CATEGORIES: RiskCategory[] = ['violent', 'toxic', 'dangerous'];
 
@@ -73,6 +68,16 @@ export function keywordFilter(text: string): KeywordFilterResult {
   }
 
   const normalized = text.toLowerCase();
+  const violentHits = VIOLENT_TEXT_KEYWORDS.filter((kw) => normalized.includes(kw));
+  if (violentHits.length > 0) {
+    return { riskFlag: true, category: 'violent', matchedKeywords: violentHits };
+  }
+
+  const drugHits = DRUG_TEXT_KEYWORDS.filter((kw) => normalized.includes(kw));
+  if (drugHits.length > 0) {
+    return { riskFlag: true, category: 'dangerous', matchedKeywords: drugHits };
+  }
+
   const matchedKeywords: string[] = [];
   let category: RiskCategory = 'neutral';
 

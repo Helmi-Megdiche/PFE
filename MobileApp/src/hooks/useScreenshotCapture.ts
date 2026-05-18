@@ -11,8 +11,10 @@ import { classifyImage } from '../services/imageClassifier';
 import { postScreenEvent } from '../services/screenEventsApi';
 import {
   applyExplicitOcrBoost,
+  applyPostProcessingOverride,
   computeOcrRiskScore,
-  resolveCombinedCategory,
+  enforceCategoryConsistency,
+  resolveFinalCategoryWithScore,
 } from '../utils/riskCombination';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
@@ -160,12 +162,30 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           imageClassification.adultScore,
         );
         imageRiskScore = boosted.imageRiskScore;
-        const combinedRiskScore = boosted.combinedRiskScore;
+        let combinedRiskScore = boosted.combinedRiskScore;
+
+        const postProcessed = applyPostProcessingOverride({
+          combinedRiskScore,
+          finalCategory: resolveFinalCategoryWithScore(
+            combinedRiskScore,
+            keywordResult.riskFlag,
+            imageClassification,
+            keywordResult.category,
+            imageClassification.imageClassificationDetails?.mappedCategory,
+          ),
+          ocrCategory: keywordResult.category,
+          keywordRiskFlag: keywordResult.riskFlag,
+          matchedKeywords: keywordResult.matchedKeywords,
+        });
+        combinedRiskScore = postProcessed.combinedRiskScore;
+
         const finalRiskFlag = combinedRiskScore > 50;
-        const finalCategory = resolveCombinedCategory(
+        const finalCategory = enforceCategoryConsistency(
+          combinedRiskScore,
+          finalRiskFlag,
+          postProcessed.finalCategory,
           imageClassification,
           keywordResult.category,
-          imageClassification.imageClassificationDetails?.mappedCategory,
         );
 
         const payload: ScreenEventPayload = {

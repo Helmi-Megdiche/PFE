@@ -29,11 +29,8 @@ export function combineRiskScores(
   );
 }
 
-const VISION_PRIORITY = new Set(['adult', 'violent']);
+const VISION_PRIORITY = new Set(['adult', 'violent', 'gore', 'dangerous_challenge']);
 
-/**
- * Final category: vision adult/violent wins; otherwise OCR category.
- */
 export function resolveDebugFinalCategory(
   visionCategory: string,
   ocrCategory: string,
@@ -41,10 +38,32 @@ export function resolveDebugFinalCategory(
   if (VISION_PRIORITY.has(visionCategory)) {
     return visionCategory;
   }
-  if (ocrCategory === 'adult') {
-    return 'adult';
+  if (ocrCategory === 'adult' || ocrCategory === 'violent' || ocrCategory === 'dangerous_challenge') {
+    return ocrCategory;
   }
   return ocrCategory || 'neutral';
+}
+
+export function enforceCategoryConsistency(
+  combinedRiskScore: number,
+  riskFlag: boolean,
+  category: string,
+  visionCategory: string,
+  ocrCategory: string,
+): string {
+  if (combinedRiskScore < 50 && !riskFlag) {
+    return category;
+  }
+  if (category !== 'neutral' && category !== 'educational') {
+    return category;
+  }
+  if (VISION_PRIORITY.has(visionCategory)) return visionCategory;
+  if (ocrCategory === 'adult') return 'adult';
+  if (ocrCategory === 'violent') return 'violent';
+  if (ocrCategory === 'dangerous_challenge' || ocrCategory === 'dangerous') {
+    return 'dangerous_challenge';
+  }
+  return 'adult';
 }
 
 export interface VisionOcrRiskSlice {
@@ -52,9 +71,6 @@ export interface VisionOcrRiskSlice {
   riskScore: number;
 }
 
-/**
- * When OCR detects explicit adult text but vision is neutral/low, boost vision + combined score.
- */
 export function applyExplicitContentOverride(
   vision: VisionOcrRiskSlice,
   ocr: VisionOcrRiskSlice,
@@ -83,6 +99,14 @@ export function applyExplicitContentOverride(
     finalCategory = 'adult';
     combinedRiskScore = Math.max(combinedRiskScore, 70);
   }
+
+  finalCategory = enforceCategoryConsistency(
+    combinedRiskScore,
+    adjustedOcr.riskScore > 50,
+    finalCategory,
+    adjustedVision.category,
+    adjustedOcr.category,
+  );
 
   return {
     vision: adjustedVision,
