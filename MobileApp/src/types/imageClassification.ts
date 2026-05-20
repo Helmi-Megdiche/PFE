@@ -39,5 +39,6 @@ export interface ImageClassificationDetails {
   nsfwSource?: string;
   nsfwProbabilities?: Record<string, number>;
   tfliteOutputs?: number[];
+  captureQualityHint?: 'ok' | 'blank_or_protected';
   mockHint?: string;
 }

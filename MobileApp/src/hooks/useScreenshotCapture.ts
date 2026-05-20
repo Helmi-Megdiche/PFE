@@ -22,6 +22,8 @@ import {
   RISK_INTERVAL_LOW_MS,
 } from '../utils/adaptiveCapture';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
+import { detectCaptureQuality } from '../utils/captureQuality';
+import { isDevOverlayOcrText } from '../utils/devOverlayOcr';
 import { toMlKitImageUri } from '../utils/imageUri';
 import { setLastCapturePath } from '../utils/lastCapturePath';
 import {
@@ -268,16 +270,22 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         const preview = truncateText(fullText, maxTextLength);
         scLog('OCR done', { chars: preview.length, preview: preview.slice(0, 80) });
 
-        const keywordResult = keywordFilter(preview);
-        const visionScore =
-          imageClassification.imageClassificationDetails?.imageRiskScore ??
-          imageClassification.imageRiskScore;
+        const devOverlayOcr = __DEV__ && isDevOverlayOcrText(fullText);
+        if (devOverlayOcr) {
+          scLog('OCR suppressed — React Native / Metro dev overlay detected');
+        }
 
-        const ocrRiskScore = computeOcrRiskScore(
-          keywordResult.riskFlag,
-          keywordResult.category,
-          keywordResult.matchedKeywords.length,
-        );
+        const keywordResult = devOverlayOcr
+          ? { riskFlag: false, category: 'educational' as const, matchedKeywords: [] as string[] }
+          : keywordFilter(preview);
+
+        const ocrRiskScore = devOverlayOcr
+          ? 0
+          : computeOcrRiskScore(
+              keywordResult.riskFlag,
+              keywordResult.category,
+              keywordResult.matchedKeywords.length,
+            );
         let imageRiskScore =
           imageClassification.imageClassificationDetails?.imageRiskScore ??
           imageClassification.imageRiskScore;
@@ -315,6 +323,19 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           keywordResult.category,
         );
 
+        const details = imageClassification.imageClassificationDetails ?? {};
+        const captureQuality = detectCaptureQuality(
+          details.mlKitLabels,
+          imageClassification.adultScore ?? 0,
+          fullText.length,
+        );
+        if (captureQuality === 'blank_or_protected') {
+          scWarn(
+            'Capture may be blank or protected (Incognito/DRM?) — TFLite saw little content; try normal Chrome tab + app-switch capture',
+            { labels: details.mlKitLabels?.slice(0, 4) },
+          );
+        }
+
         const payload: ScreenEventPayload = {
           timestamp: new Date().toISOString(),
           appPackage: resolvedPackage,
@@ -324,7 +345,10 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           riskScore: combinedRiskScore,
           imageRiskScore,
           combinedRiskScore,
-          imageClassificationDetails: imageClassification.imageClassificationDetails,
+          imageClassificationDetails: {
+            ...details,
+            captureQualityHint: captureQuality,
+          },
           category: finalCategory,
         };
 

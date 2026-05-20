@@ -500,7 +500,9 @@ bash run_full_pipeline.sh
 # Quick test: DOWNLOAD_LIMIT=100 bash run_full_pipeline.sh
 ```
 
-**Note:** The child app currently ships **Yahoo Open NSFW** `nsfw.tflite` (Sprint 3.9). The trained 5-class model is produced under `training/out/` (gitignored).
+**Note:** The child app currently ships **Yahoo Open NSFW** `nsfw.tflite` (Sprint 3.9). The trained 5-class model is produced under `training/out/` (gitignored via `training/.gitignore`).
+
+**Debug upload vs device:** `POST /api/debug/classify` and `demo_dashboard.html` use **backend nsfwjs + Tesseract** — not the on-device TFLite pipeline. Use `screen_events` / Metro `[NSFW] TFLite` logs for real monitoring scores.
 
 ---
 

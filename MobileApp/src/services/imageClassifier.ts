@@ -7,7 +7,9 @@ import type {
   ImageClassificationDetails,
   ImageClassificationResult,
 } from '../types/imageClassification';
+import type { RiskMapCategory } from '../utils/riskMapping';
 import {
+  computeMlKitNonAdultRisk,
   mapMlKitLabelsToRisk,
   riskMappingToImageScores,
   toApiCategory,
@@ -15,6 +17,9 @@ import {
 import { classifyNsfw, initModel } from './nsfwClassifier';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
 
+/**
+ * TFLite owns adult/suggestive/neutral; ML Kit only boosts violent / gore / dangerous.
+ */
 function mergeVisionRisk(
   mlKitMapped: ReturnType<typeof mapMlKitLabelsToRisk>,
   nsfw: Awaited<ReturnType<typeof classifyNsfw>>,
@@ -23,25 +28,35 @@ function mergeVisionRisk(
   category: string;
   categoryWeights: Record<string, number>;
 } {
-  const mlScore = mlKitMapped.riskScore;
-  const nsfwScore = nsfw.riskScore;
-  const riskScore = Math.max(mlScore, nsfwScore);
+  const tfliteScore = nsfw.riskScore;
+  const mlNonAdult = computeMlKitNonAdultRisk(mlKitMapped);
 
-  let category = mlKitMapped.category;
-  if (nsfw.category === 'adult' && (nsfw.forced || nsfwScore >= mlScore)) {
-    category = 'adult';
-  } else if (nsfw.category === 'suggestive' && category === 'neutral') {
-    category = 'adult';
-  } else if (riskScore >= 50 && category === 'neutral') {
-    category = mlKitMapped.category === 'neutral' ? 'adult' : mlKitMapped.category;
+  let visionRiskScore = tfliteScore;
+  if (
+    tfliteScore < 50 &&
+    mlNonAdult.category !== 'neutral' &&
+    mlNonAdult.category !== 'educational'
+  ) {
+    visionRiskScore = Math.max(visionRiskScore, Math.round(mlNonAdult.riskScore * 0.5));
   }
 
-  const categoryWeights = { ...mlKitMapped.categoryWeights };
+  let category: RiskMapCategory = 'neutral';
   if (nsfw.category === 'adult' || nsfw.category === 'suggestive') {
-    categoryWeights.adult = Math.max(categoryWeights.adult ?? 0, nsfw.nsfwScore);
+    category = 'adult';
+  } else if (mlNonAdult.category !== 'neutral' && mlNonAdult.category !== 'educational') {
+    category = mlNonAdult.category;
   }
 
-  return { riskScore, category: toApiCategory(category), categoryWeights };
+  const categoryWeights: Record<string, number> = {
+    ...mlNonAdult.categoryWeights,
+    adult: nsfw.nsfwScore,
+  };
+
+  return {
+    riskScore: visionRiskScore,
+    category: toApiCategory(category),
+    categoryWeights,
+  };
 }
 
 function buildResult(
@@ -62,7 +77,10 @@ function buildResult(
   const imageClassificationDetails: ImageClassificationDetails = {
     source,
     violenceScore: scores.violenceScore,
-    adultScore: Math.max(scores.adultScore, merged.riskScore / 100),
+    adultScore: Math.max(
+      scores.adultScore,
+      merged.categoryWeights.adult ?? merged.riskScore / 100,
+    ),
     goreScore: scores.goreScore,
     dangerousChallengeScore: scores.dangerousChallengeScore,
     educationalScore: scores.educationalScore,

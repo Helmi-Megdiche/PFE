@@ -67,9 +67,14 @@
     <!-- Vision Model Debug Tool -->
     <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
       <h2 class="text-lg font-semibold mb-1">Vision Model Debug Tool</h2>
-      <p class="text-sm text-slate-500 mb-4">
+      <p class="text-sm text-slate-500 mb-2">
         Upload any image to <code class="bg-slate-100 px-1 rounded">POST /api/debug/classify</code>
-        — <strong>nsfwjs</strong> vision (70%) + <strong>Tesseract OCR</strong> keyword filter (30%), same combined risk as the mobile app.
+        — backend <strong>nsfwjs</strong> (5 classes) + <strong>Tesseract OCR</strong> (30% / 70% weights).
+      </p>
+      <p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+        <strong>Not the same as the child app.</strong> On-device monitoring uses Yahoo Open NSFW
+        <code class="bg-amber-100 px-1 rounded">nsfw.tflite</code> + ML Kit + ML Kit OCR. Scores here can differ from
+        live <code class="bg-amber-100 px-1 rounded">screen_events</code> rows (look for <code class="bg-amber-100 px-1 rounded">TFLite-NSFW:%</code> in the table).
       </p>
       <div class="flex flex-wrap gap-3 items-end">
         <label class="block">
@@ -92,7 +97,7 @@
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="border border-slate-200 rounded-lg p-3">
-            <h3 class="text-sm font-semibold text-violet-700 mb-2">Vision (nsfwjs, 70%)</h3>
+            <h3 class="text-sm font-semibold text-violet-700 mb-2">Vision (backend nsfwjs, 70%)</h3>
             <p class="text-xs text-slate-500 mb-2">Category: <strong id="visionCategory" class="capitalize">—</strong> · Score: <strong id="visionRiskScore">—</strong></p>
             <table class="min-w-full text-xs">
               <thead class="text-slate-500"><tr><th class="text-left py-1">Class</th><th class="text-right py-1">Prob</th></tr></thead>
@@ -260,13 +265,24 @@
 
       function imageLabels(details) {
         if (!details || typeof details !== 'object') return '—';
+        const parts = [];
+        const tflite = details.tfliteOutputs;
+        if (Array.isArray(tflite) && tflite.length >= 2) {
+          const nsfwPct = Math.round((tflite[1] ?? 0) * 100);
+          parts.push(`TFLite-NSFW:${nsfwPct}%`);
+        } else if (details.nsfwProbabilities?.porn != null) {
+          parts.push(`TFLite-NSFW:${Math.round(details.nsfwProbabilities.porn * 100)}%`);
+        }
         const labels = details.mlKitLabels;
         if (Array.isArray(labels) && labels.length) {
-          return labels
-            .slice(0, 3)
-            .map((l) => `${l.text || l.label || '?'}:${(l.confidence ?? 0).toFixed(2)}`)
-            .join(', ');
+          parts.push(
+            labels
+              .slice(0, 3)
+              .map((l) => `${l.text || l.label || '?'}:${(l.confidence ?? 0).toFixed(2)}`)
+              .join(', '),
+          );
         }
+        if (parts.length) return parts.join(' · ');
         if (details.source === 'mock' && details.mockHint) {
           return `mock:${details.mockHint}`;
         }

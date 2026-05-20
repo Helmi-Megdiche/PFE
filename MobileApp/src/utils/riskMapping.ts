@@ -195,6 +195,49 @@ export function mapMlKitLabelsToRisk(labels: MlKitLabel[]): RiskMappingResult {
   return { category, riskScore, topLabels, categoryWeights };
 }
 
+/** ML Kit vision score excluding adult/skin heuristics (TFLite owns adult detection). */
+export function computeMlKitNonAdultRisk(mapped: RiskMappingResult): RiskMappingResult {
+  const categoryWeights: Record<string, number> = {
+    adult: 0,
+    violent: mapped.categoryWeights.violent ?? 0,
+    gore: mapped.categoryWeights.gore ?? 0,
+    dangerous: mapped.categoryWeights.dangerous ?? 0,
+    educational: mapped.categoryWeights.educational ?? 0,
+  };
+
+  let riskScore = 0;
+  for (const rule of CATEGORY_RULES) {
+    if (rule.id === 'adult') {
+      continue;
+    }
+    riskScore += (categoryWeights[rule.id] ?? 0) * 100;
+  }
+  riskScore = clampScore(riskScore);
+
+  let category = pickHighestRiskCategory(categoryWeights);
+  if (category === 'adult') {
+    category = 'neutral';
+  }
+  const eduStrength = Math.abs(categoryWeights.educational ?? 0);
+  const maxPositive = Math.max(
+    categoryWeights.violent ?? 0,
+    categoryWeights.gore ?? 0,
+    categoryWeights.dangerous ?? 0,
+  );
+  if (maxPositive < 0.15 && eduStrength > 0.2) {
+    category = 'educational';
+  } else if (maxPositive < 0.15) {
+    category = 'neutral';
+  }
+
+  return {
+    category,
+    riskScore,
+    topLabels: mapped.topLabels,
+    categoryWeights,
+  };
+}
+
 export function riskMappingToImageScores(mapped: RiskMappingResult): {
   violenceScore: number;
   adultScore: number;
