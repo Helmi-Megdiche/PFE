@@ -482,6 +482,28 @@ LIMIT 10;
 
 ---
 
+## NSFW model training (WSL2, Sprint 3.8)
+
+Fine-tune **EfficientNetV2B0** on the [NSFW Data Scraper](https://github.com/alex000kim/nsfw_data_scraper) dataset and export a quantized `.tflite` (optional replacement for the bundled Yahoo model on device).
+
+| Script | Purpose |
+|--------|---------|
+| [`training/README_FINETUNE.md`](training/README_FINETUNE.md) | Full pipeline guide |
+| [`training/run_full_pipeline.sh`](training/run_full_pipeline.sh) | Download → inspect → train → copy to `MobileApp` assets |
+| [`training/download_images.py`](training/download_images.py) | Parallel download from `urls_*.txt` |
+| [`training/train_nsfw.py`](training/train_nsfw.py) | Two-phase training + TFLite export |
+
+```bash
+# WSL Ubuntu — conda env nsfw-gpu, GPU recommended
+cd /mnt/c/Users/helmi/OneDrive/Documents/GitHub/PFE/training
+bash run_full_pipeline.sh
+# Quick test: DOWNLOAD_LIMIT=100 bash run_full_pipeline.sh
+```
+
+**Note:** The child app currently ships **Yahoo Open NSFW** `nsfw.tflite` (Sprint 3.9). The trained 5-class model is produced under `training/out/` (gitignored).
+
+---
+
 ## Next Steps (Sprint 4)
 
 1. **Real-world missions** – triggered when `combined_risk_score` exceeds thresholds.
@@ -513,4 +535,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 20 May 2026  
-**Status:** Sprint 3.7 complete – adaptive capture with risk-based intervals and app-switch triggers.
+**Status:** Sprint 3.9 complete – on-device Yahoo Open NSFW TFLite; Sprint 3.8 training pipeline in `training/`.
