@@ -12,6 +12,7 @@
 - [Project Overview](#project-overview)
 - [Problem Statement & Objectives](#problem-statement--objectives)
 - [System Architecture](#system-architecture)
+  - [Adaptive Capture](#adaptive-capture)
 - [Tech Stack](#tech-stack)
 - [Repository Structure](#repository-structure)
 - [Prerequisites](#prerequisites)
@@ -97,6 +98,26 @@ graph TB
 3. The hook `useScreenshotCapture` loads the image, runs **ML Kit OCR**, and applies the **keyword filter**.
 4. Only extracted text (≤500 chars), risk flag, category, and metadata are sent to `POST /api/screen-events` – the image is deleted immediately.
 5. Backend stores metadata in the `screen_events` table.
+
+### Adaptive Capture
+
+Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive strategy** so the app reacts quickly after risky content without draining the battery when risk is low.
+
+| Trigger | When it fires |
+|---------|----------------|
+| **App switch** | Foreground app changes (UsageStats poll every 1s) → immediate `captureNow()` |
+| **Follow-up** | 5 seconds after app switch, unless a capture completed within the last 2 seconds |
+| **Periodic (adaptive)** | Rolling average of the last **3** `combinedRiskScore` values sets the interval |
+
+| Average risk (last 3 captures) | Periodic interval |
+|--------------------------------|-------------------|
+| > 70 | 10 seconds |
+| 30 – 70 | 30 seconds |
+| < 30 | 60 seconds |
+
+**Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
+
+Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`.
 
 ---
 
@@ -408,15 +429,18 @@ See also `MobileApp/TESTING.md` if present in the repo.
 
 ## Sprint Status
 
-| Sprint | Dates | Status | Deliverable |
-|--------|-------|--------|-------------|
-| 1 | 18 – 31 May 2026 | Complete | Screen monitoring, on-device OCR, keyword filter, JWT API, `screen_events` storage |
-| 2 | 1 – 14 June 2026 | Complete | Usage tracking (AppState MVP), scoring engine, cron job, usage & score APIs |
-| 3 | 15 – 28 June 2026 | Complete | On-device image classification (TFLite + ML Kit + mock), combined OCR/vision risk |
-| 4 | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
-| 5 | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
+| Sprint | Dates | Status | Summary |
+|--------|-------|--------|---------|
+| **1** | 18 – 31 May 2026 | Complete | **OCR + JWT backend** — MediaProjection capture, on-device ML Kit OCR, keyword filter, `POST /api/screen-events`, JWT auth, `screen_events` storage |
+| **2** | 1 – 14 June 2026 | Complete | **Usage-based scoring + cron** — foreground usage sessions (`POST /api/usage`), addiction & well-being scoring engine, `node-cron` daily aggregation, score & trend APIs |
+| **3** | 15 – 28 June 2026 | Complete | **Vision model + combined risk** — ML Kit image labeling + nsfwjs-style proxy on device, `combinedRiskScore = OCR×0.3 + vision×0.7`, extended `screen_events` fields |
+| **3.5** | — | Complete | **Debug & foreground** — `POST /api/debug/classify` (backend nsfwjs + Tesseract OCR), `demo_dashboard.html`, `ForegroundAppModule` (UsageStats), shared `riskMapping.ts` (mobile + backend), `app_label` migration |
+| **3.6** | — | Complete | **Accuracy improvements** — expanded ML Kit mapping (weapons, drugs, gore, adult, hentai proxy), `enforceCategoryConsistency`, explicit OCR boosts & overrides, `nsfwClassifier` proxy (no tfjs on device) |
+| **3.7** | — | Complete | **Adaptive capture** — immediate capture on app switch, follow-up after 5s, risk-based dynamic intervals (10s / 30s / 60s from rolling average of last 3 scores), 5s debounce |
+| **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
+| **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint 3 – combined OCR + on-device vision risk on every screen capture.
+**Current milestone:** Sprint **3.7** — adaptive capture with risk-based intervals and app-switch follow-up.
 
 ---
 
@@ -486,5 +510,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 17 May 2026  
-**Status:** Sprint 3 complete – on-device image classification integrated with screen monitoring.
+**Last updated:** 20 May 2026  
+**Status:** Sprint 3.7 complete – adaptive capture with risk-based intervals and app-switch triggers.
