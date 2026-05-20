@@ -102,6 +102,12 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    // Keep Tesseract .traineddata files uncompressed so a native Tesseract
+    // bridge can mmap them from the APK assets/tessdata/ directory.
+    aaptOptions {
+        noCompress 'traineddata', 'tflite'
+    }
 }
 
 dependencies {

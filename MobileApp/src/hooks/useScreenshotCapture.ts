@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import TextRecognition from '@react-native-ml-kit/text-recognition';
 import getScreenCaptureModule, {
   screenCaptureEmitter,
   SCREEN_CAPTURE_EVENTS,
@@ -8,6 +7,7 @@ import getScreenCaptureModule, {
 } from '../native/ScreenCapture';
 import { keywordFilter } from '../utils/keywordFilter';
 import { classifyImage } from '../services/imageClassifier';
+import { extractTextMixed } from '../services/mixedScriptOcr';
 import { postScreenEvent } from '../services/screenEventsApi';
 import {
   applyExplicitOcrBoost,
@@ -274,14 +274,23 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         });
         setLastForegroundApp(resolvedPackage);
 
-        const [ocrResult, imageClassification] = await Promise.all([
-          TextRecognition.recognize(ocrInput),
+        const [ocrMixed, imageClassification] = await Promise.all([
+          extractTextMixed(ocrInput),
           classifyImage(ocrInput, filePath),
         ]);
 
-        const fullText = ocrResult.text ?? '';
+        const fullText = ocrMixed.text ?? '';
         const preview = truncateText(fullText, maxTextLength);
-        scLog('OCR done', { chars: preview.length, preview: preview.slice(0, 80) });
+        const normalizedText = ocrMixed.normalizedText
+          ? truncateText(ocrMixed.normalizedText, maxTextLength)
+          : undefined;
+        scLog('OCR done', {
+          chars: preview.length,
+          preview: preview.slice(0, 80),
+          source: ocrMixed.source,
+          arabic: ocrMixed.hasArabicScript,
+          arabizi: ocrMixed.hasArabiziPattern,
+        });
 
         const devOverlayOcr = __DEV__ && isDevOverlayOcrText(fullText);
         if (devOverlayOcr) {
@@ -290,7 +299,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         const keywordResult = devOverlayOcr
           ? { riskFlag: false, category: 'educational' as const, matchedKeywords: [] as string[] }
-          : keywordFilter(preview);
+          : keywordFilter(preview, normalizedText);
 
         const ocrRiskScore = devOverlayOcr
           ? 0

@@ -95,7 +95,7 @@ graph TB
 
 1. Child grants **MediaProjection** permission (foreground service on Android 14+).
 2. Every **30 seconds**, `ScreenCaptureModule` captures a screenshot and saves a temporary JPEG on device.
-3. The hook `useScreenshotCapture` loads the image, runs **ML Kit OCR**, and applies the **keyword filter**.
+3. The hook `useScreenshotCapture` loads the image, runs the **hybrid multilingual OCR** (`mixedScriptOcr.ts`: ML Kit primary + Arabizi normalization + optional Tesseract fallback for Arabic / mixed-script captures), and applies the **multilingual keyword filter** (English + French + Arabic + Tunisian Derja).
 4. Only extracted text (≤500 chars), risk flag, category, and metadata are sent to `POST /api/screen-events` – the image is deleted immediately.
 5. Backend stores metadata in the `screen_events` table.
 
@@ -127,7 +127,7 @@ Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/ut
 |-----------|------------|
 | Mobile frontend | React Native 0.74.5 + TypeScript |
 | Native module | Java (MediaProjection API, foreground service) |
-| OCR | `@react-native-ml-kit/text-recognition` (Google ML Kit, on-device) |
+| OCR | `@react-native-ml-kit/text-recognition` (Google ML Kit, on-device) + Arabizi normalization + optional Tesseract `ara+fra+eng` fallback (`MobileApp/src/services/mixedScriptOcr.ts`) |
 | Backend | Node.js + Express + TypeScript |
 | Database | PostgreSQL 16 (Docker) or local PostgreSQL 14+ |
 | Authentication | JWT (AsyncStorage on device) |
@@ -439,10 +439,11 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.7** | — | Complete | **Adaptive capture** — immediate capture on app switch, follow-up after 5s, risk-based dynamic intervals (10s / 30s / 60s from rolling average of last 3 scores), 5s debounce |
 | **3.8** | — | Complete | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite`. See [`training/README_FINETUNE.md`](training/README_FINETUNE.md) |
 | **3.9** | — | Complete | **On-device NSFW TFLite** — Yahoo Open NSFW `nsfw.tflite` via native `NsfwTflite` module (RN 0.74–compatible), replaces ML Kit heuristic proxy for adult score |
+| **3.10** | — | Complete | **Multilingual OCR (FR / AR / Derja)** — French + Arabic + Tunisian Derja Arabizi keyword lists, `normalizeArabizi.ts` (digit-letter → quasi-Arabic), `mixedScriptOcr.ts` (ML Kit primary + graceful Tesseract `ara+fra+eng` fallback), normalized-text channel in `keywordFilter` |
 | **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint **3.9** — on-device Yahoo Open NSFW TFLite classification merged with ML Kit + OCR risk pipeline.
+**Current milestone:** Sprint **3.10** — multilingual on-device OCR (English + French + Arabic + Tunisian Derja Arabizi) feeding the TFLite + ML Kit + keyword risk fusion.
 
 ---
 
@@ -452,7 +453,7 @@ After each screenshot, **OCR** and **image classification** run in parallel:
 
 | Step | Module | Output |
 |------|--------|--------|
-| 1 | ML Kit OCR | Text preview + keyword risk |
+| 1 | **Multilingual OCR** (`mixedScriptOcr.ts`) | ML Kit text + Arabizi-normalized text → multilingual keyword risk (EN / FR / AR / Derja) |
 | 2 | **TFLite NSFW** (`nsfw.tflite`) + ML Kit labels | `imageRiskScore`, `adultScore`, `tfliteOutputs` |
 | 3 | `riskCombination.ts` | `combinedRiskScore = OCR×0.3 + image×0.7` |
 
@@ -503,6 +504,32 @@ bash run_full_pipeline.sh
 **Note:** The child app currently ships **Yahoo Open NSFW** `nsfw.tflite` (Sprint 3.9). The trained 5-class model is produced under `training/out/` (gitignored via `training/.gitignore`).
 
 **Debug upload vs device:** `POST /api/debug/classify` and `demo_dashboard.html` use **backend nsfwjs + Tesseract** — not the on-device TFLite pipeline. Use `screen_events` / Metro `[NSFW] TFLite` logs for real monitoring scores.
+
+---
+
+## Multilingual OCR (Sprint 3.10)
+
+The on-device OCR path was extended from English-only to **English + French + Arabic + Tunisian Derja Arabizi** without sending screenshots off-device.
+
+| Layer | File | Responsibility |
+|-------|------|----------------|
+| Primary OCR | `MobileApp/src/services/mixedScriptOcr.ts` | ML Kit `TextRecognition.recognize` |
+| Script detection | `MobileApp/src/utils/normalizeArabizi.ts` | `containsArabicScript` (Unicode range) + `containsArabiziPattern` (digit-letter mix `[a-z][2356789]`) |
+| Arabizi normalization | `normalizeArabizi(text)` | Maps `7→ح 3→ع 5→خ 9→ق` etc. + digraphs (`ch→ش`, `kh→خ`, `gh→غ`) — used as a **secondary text channel** for keyword matching only |
+| Optional Tesseract fallback | `extractTextMixed` | Lazily `require('tesseract.js')` for `ara+fra+eng`; **silently disabled** if the module is absent or fails (RN 0.74 + WASM is experimental). Future native bridge will mmap `.traineddata` from `MobileApp/android/app/src/main/assets/tessdata/` (see [tessdata README](MobileApp/android/app/src/main/assets/tessdata/README.md)) |
+| Multilingual keyword filter | `MobileApp/src/utils/keywordFilter.ts` | `keywordFilter(text, normalizedText?)` — runs scans on both raw and Arabizi-normalized text, merges by highest risk category. New lists: `FRENCH_HIGH_RISK_KEYWORDS`, `ARABIC_HIGH_RISK_KEYWORDS`, `DERJA_ARABIZI_HIGH_RISK` (e.g. `nik`, `9a7ba`, `cha9wa`) |
+
+**Tests:** `MobileApp/__tests__/normalizeArabizi.test.ts` (10 cases) and `MobileApp/__tests__/keywordFilterMultilingual.test.ts` (14 cases) cover French adult/violence/insults, Arabic Unicode, Derja Arabizi, normalized-text channel and false-positive resistance (`Nikon camera`, polite Arabic, neutral French).
+
+**Enable Tesseract on device (optional, future work):**
+
+```bash
+cd MobileApp
+npm install tesseract.js          # experimental on RN 0.74
+# Then drop ara/fra/eng .traineddata into android/app/src/main/assets/tessdata/
+```
+
+The pipeline degrades gracefully: even without Tesseract, ML Kit text is passed through `normalizeArabizi` and matched against the new Derja Arabizi keyword list, so Derja content is caught on-device today.
 
 ---
 
