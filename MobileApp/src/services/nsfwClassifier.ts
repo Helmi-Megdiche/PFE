@@ -1,9 +1,11 @@
 /**
- * NSFW vision layer — ML Kit hentai proxy + path hints (on-device).
- * nsfwjs is used only on the backend debug endpoint; not bundled on mobile (RN 0.74).
+ * On-device NSFW classification via Yahoo Open NSFW TFLite (assets/models/nsfw.tflite).
+ * Preprocessing matches flutter_nude_checker (224×224, BGR mean 104/117/123).
  */
 
-import { scLog } from '../utils/screenCaptureLogger';
+import { Platform } from 'react-native';
+import { classifyNsfwNative, initNsfwModel } from '../native/NsfwTflite';
+import { scLog, scWarn } from '../utils/screenCaptureLogger';
 
 export interface NsfwProbabilities {
   porn: number;
@@ -13,98 +15,148 @@ export interface NsfwProbabilities {
   drawing: number;
 }
 
-export type NsfwSource = 'mlkit-proxy' | 'path-hint';
+export type NsfwSource = 'tflite' | 'unavailable';
 
 export interface NsfwInferenceResult {
   probabilities: NsfwProbabilities;
   riskScore: number;
-  category: 'adult' | 'neutral';
+  category: 'adult' | 'suggestive' | 'neutral';
   source: NsfwSource;
   forced: boolean;
+  nsfwScore: number;
+  sfwScore: number;
+  elapsedMs?: number;
+  rawOutput?: number[];
 }
 
-export function applyNsfwThresholds(probs: NsfwProbabilities): {
-  riskScore: number;
-  category: 'adult' | 'neutral';
-  forced: boolean;
-} {
-  if (probs.hentai > 0.5 || probs.porn > 0.4 || probs.sexy > 0.6) {
-    return { riskScore: 100, category: 'adult', forced: true };
+let modelReady = false;
+let initPromise: Promise<void> | null = null;
+
+const ADULT_THRESHOLD = 0.7;
+const SUGGESTIVE_THRESHOLD = 0.3;
+
+export function mapNsfwProbabilityToCategory(
+  nsfwProbability: number,
+): 'adult' | 'suggestive' | 'neutral' {
+  if (nsfwProbability > ADULT_THRESHOLD) {
+    return 'adult';
   }
-  const score = Math.round(Math.min(100, (probs.porn + probs.sexy + probs.hentai) * 100));
+  if (nsfwProbability > SUGGESTIVE_THRESHOLD) {
+    return 'suggestive';
+  }
+  return 'neutral';
+}
+
+export function mapNsfwProbabilityToRiskScore(nsfwProbability: number): number {
+  return Math.round(Math.min(1, Math.max(0, nsfwProbability)) * 100);
+}
+
+export function probabilitiesFromNsfwScore(nsfw: number): NsfwProbabilities {
+  const clamped = Math.min(1, Math.max(0, nsfw));
   return {
-    riskScore: score,
-    category: score >= 40 ? 'adult' : 'neutral',
-    forced: false,
+    porn: clamped,
+    sexy: clamped * 0.5,
+    hentai: 0,
+    neutral: 1 - clamped,
+    drawing: 0,
   };
 }
 
-/** Infer NSFW probabilities from ML Kit labels. */
-export function inferNsfwFromMlKitLabels(
-  labels: Array<{ text: string; confidence: number }>,
-): NsfwProbabilities {
-  let hentai = 0;
-  let drawing = 0;
-  let porn = 0;
-  let sexy = 0;
-  let neutral = 0.3;
-
-  for (const l of labels) {
-    const t = l.text.toLowerCase();
-    if (/hentai|erotic|nude|lingerie|underwear|bikini|breast|buttocks/.test(t)) {
-      porn = Math.max(porn, l.confidence);
-    } else if (/skin|flesh|muscle|torso/.test(t)) {
-      sexy = Math.max(sexy, l.confidence * 0.9);
-    } else if (/anime|cartoon|comic|manga|illustration|drawing|art/.test(t)) {
-      hentai = Math.max(hentai, l.confidence * 0.75);
-      drawing = Math.max(drawing, l.confidence);
-    } else if (/person|portrait|selfie/.test(t)) {
-      sexy = Math.max(sexy, l.confidence * 0.4);
-    } else if (/screenshot|text|document|landscape|sky|mountain|building|lake|river|rock|poster/.test(t)) {
-      neutral = Math.max(neutral, l.confidence);
-    }
+/** Load TFLite model from Android assets (idempotent). */
+export async function initModel(): Promise<void> {
+  if (modelReady) {
+    return;
   }
-
-  return { porn, sexy, hentai, neutral, drawing };
+  if (initPromise) {
+    return initPromise;
+  }
+  if (Platform.OS !== 'android') {
+    scWarn('[NSFW] TFLite only available on Android');
+    return;
+  }
+  initPromise = (async () => {
+    await initNsfwModel();
+    modelReady = true;
+    scLog('[NSFW] Model loaded (nsfw.tflite)');
+  })().catch((err) => {
+    initPromise = null;
+    scWarn('[NSFW] Model loading failed', err);
+    throw err;
+  });
+  return initPromise;
 }
 
-function inferFromPathHints(imageUri: string, filePath?: string): NsfwProbabilities | null {
-  const haystack = `${filePath ?? ''} ${imageUri}`.toLowerCase();
-  if (/hentai|nsfw|porn|xxx|adult|nude/.test(haystack)) {
-    return { porn: 0.85, sexy: 0.2, hentai: 0.7, neutral: 0.05, drawing: 0.1 };
-  }
-  return null;
+function resolveFilePath(imageUri: string, filePath?: string): string {
+  const raw = filePath?.trim() || imageUri.trim();
+  return raw.startsWith('file://') ? raw.slice(7) : raw;
 }
 
 /**
- * On-device NSFW inference: path hints, then ML Kit label proxy.
+ * Classify an image from a local file path / URI.
+ * Returns riskScore 0–100 (higher = more unsafe).
  */
-export async function classifyNsfw(
+export async function classifyImage(
   imageUri: string,
-  filePath: string | undefined,
-  mlKitLabels: Array<{ text: string; confidence: number }>,
+  filePath?: string,
 ): Promise<NsfwInferenceResult> {
-  const pathHint = inferFromPathHints(imageUri, filePath);
-  if (pathHint) {
-    const t = applyNsfwThresholds(pathHint);
-    scLog('NSFW path-hint', t);
-    return {
-      probabilities: pathHint,
-      riskScore: t.riskScore,
-      category: t.category,
-      source: 'path-hint',
-      forced: t.forced,
-    };
+  if (Platform.OS !== 'android') {
+    return unavailableResult('non-android');
   }
 
-  const proxy = inferNsfwFromMlKitLabels(mlKitLabels);
-  const t = applyNsfwThresholds(proxy);
-  scLog('NSFW mlkit-proxy', { ...t, hentai: proxy.hentai, porn: proxy.porn });
+  try {
+    if (!modelReady) {
+      await initModel();
+    }
+    const path = resolveFilePath(imageUri, filePath);
+    const scores = await classifyNsfwNative(path);
+    const nsfw = scores.nsfwScore;
+    const category = mapNsfwProbabilityToCategory(nsfw);
+    const riskScore = mapNsfwProbabilityToRiskScore(nsfw);
+    const forced = category === 'adult';
+
+    scLog('[NSFW] TFLite', {
+      nsfw: nsfw.toFixed(3),
+      sfw: scores.sfwScore.toFixed(3),
+      riskScore,
+      category,
+      ms: scores.elapsedMs,
+    });
+
+    return {
+      probabilities: probabilitiesFromNsfwScore(nsfw),
+      riskScore,
+      category,
+      source: 'tflite',
+      forced,
+      nsfwScore: nsfw,
+      sfwScore: scores.sfwScore,
+      elapsedMs: scores.elapsedMs,
+      rawOutput: [scores.sfwScore, scores.nsfwScore],
+    };
+  } catch (err) {
+    scWarn('[NSFW] inference failed', err);
+    return unavailableResult(String(err));
+  }
+}
+
+function unavailableResult(reason: string): NsfwInferenceResult {
   return {
-    probabilities: proxy,
-    riskScore: t.riskScore,
-    category: t.category,
-    source: 'mlkit-proxy',
-    forced: t.forced,
+    probabilities: { porn: 0, sexy: 0, hentai: 0, neutral: 1, drawing: 0 },
+    riskScore: 0,
+    category: 'neutral',
+    source: 'unavailable',
+    forced: false,
+    nsfwScore: 0,
+    sfwScore: 1,
+    rawOutput: [1, 0],
   };
+}
+
+/** @deprecated Use classifyImage — kept for imageClassifier bridge. */
+export async function classifyNsfw(
+  imageUri: string,
+  filePath?: string,
+  _mlKitLabels?: Array<{ text: string; confidence: number }>,
+): Promise<NsfwInferenceResult> {
+  return classifyImage(imageUri, filePath);
 }

@@ -6,6 +6,8 @@
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
+    "postinstall": "node scripts/clean-gradle-plugin-eclipse.js",
+    "download-nsfw-model": "node scripts/download-nsfw-model.js",
     "start": "react-native start",
     "test": "jest"
   },

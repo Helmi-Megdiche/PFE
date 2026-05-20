@@ -42,3 +42,4 @@ __pycache__/
 *.pyc
 *.h5
 *.tflite
+!MobileApp/android/app/src/main/assets/models/nsfw.tflite

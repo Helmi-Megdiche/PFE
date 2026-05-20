@@ -1,29 +1,28 @@
 import {
-  applyNsfwThresholds,
-  inferNsfwFromMlKitLabels,
+  mapNsfwProbabilityToCategory,
+  mapNsfwProbabilityToRiskScore,
+  probabilitiesFromNsfwScore,
 } from '../src/services/nsfwClassifier';
 
 describe('nsfwClassifier', () => {
-  it('forces adult when hentai > 0.5', () => {
-    const t = applyNsfwThresholds({
-      porn: 0.1,
-      sexy: 0.1,
-      hentai: 0.72,
-      neutral: 0.08,
-      drawing: 0.8,
-    });
-    expect(t.forced).toBe(true);
-    expect(t.category).toBe('adult');
-    expect(t.riskScore).toBe(100);
+  it('maps high nsfw probability to adult', () => {
+    expect(mapNsfwProbabilityToCategory(0.85)).toBe('adult');
+    expect(mapNsfwProbabilityToRiskScore(0.85)).toBe(85);
   });
 
-  it('infers hentai from cartoon ML Kit labels', () => {
-    const probs = inferNsfwFromMlKitLabels([
-      { text: 'Cartoon', confidence: 0.85 },
-      { text: 'Illustration', confidence: 0.8 },
-    ]);
-    expect(probs.hentai).toBeGreaterThan(0.5);
-    const t = applyNsfwThresholds(probs);
-    expect(t.category).toBe('adult');
+  it('maps mid nsfw probability to suggestive', () => {
+    expect(mapNsfwProbabilityToCategory(0.45)).toBe('suggestive');
+    expect(mapNsfwProbabilityToRiskScore(0.45)).toBe(45);
+  });
+
+  it('maps low nsfw probability to neutral', () => {
+    expect(mapNsfwProbabilityToCategory(0.1)).toBe('neutral');
+    expect(mapNsfwProbabilityToRiskScore(0.1)).toBe(10);
+  });
+
+  it('builds probability vector from nsfw score', () => {
+    const p = probabilitiesFromNsfwScore(0.8);
+    expect(p.porn).toBe(0.8);
+    expect(p.neutral).toBeCloseTo(0.2);
   });
 });

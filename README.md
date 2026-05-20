@@ -437,11 +437,12 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.5** | — | Complete | **Debug & foreground** — `POST /api/debug/classify` (backend nsfwjs + Tesseract OCR), `demo_dashboard.html`, `ForegroundAppModule` (UsageStats), shared `riskMapping.ts` (mobile + backend), `app_label` migration |
 | **3.6** | — | Complete | **Accuracy improvements** — expanded ML Kit mapping (weapons, drugs, gore, adult, hentai proxy), `enforceCategoryConsistency`, explicit OCR boosts & overrides, `nsfwClassifier` proxy (no tfjs on device) |
 | **3.7** | — | Complete | **Adaptive capture** — immediate capture on app switch, follow-up after 5s, risk-based dynamic intervals (10s / 30s / 60s from rolling average of last 3 scores), 5s debounce |
-| **3.8** | — | In progress | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite` for on-device inference. See [`training/README_train.md`](training/README_train.md) |
+| **3.8** | — | Complete | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite`. See [`training/README_FINETUNE.md`](training/README_FINETUNE.md) |
+| **3.9** | — | Complete | **On-device NSFW TFLite** — Yahoo Open NSFW `nsfw.tflite` via native `NsfwTflite` module (RN 0.74–compatible), replaces ML Kit heuristic proxy for adult score |
 | **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint **3.7** — adaptive capture with risk-based intervals and app-switch follow-up.
+**Current milestone:** Sprint **3.9** — on-device Yahoo Open NSFW TFLite classification merged with ML Kit + OCR risk pipeline.
 
 ---
 
@@ -452,10 +453,10 @@ After each screenshot, **OCR** and **image classification** run in parallel:
 | Step | Module | Output |
 |------|--------|--------|
 | 1 | ML Kit OCR | Text preview + keyword risk |
-| 2 | TFLite → ML Kit labels → mock | `imageRiskScore`, category scores |
+| 2 | **TFLite NSFW** (`nsfw.tflite`) + ML Kit labels | `imageRiskScore`, `adultScore`, `tfliteOutputs` |
 | 3 | `riskCombination.ts` | `combinedRiskScore = OCR×0.3 + image×0.7` |
 
-**Pipeline order (RN 0.74.5):** ML Kit Image Labeling → development mock. TFLite via `react-native-fast-tflite` needs RN 0.76+ (Nitro); add after upgrading React Native.
+**Pipeline order (RN 0.74.5):** native `NsfwTflite` (Yahoo Open NSFW, 224×224) + ML Kit Image Labeling for violence/gore/educational cues. Model: `MobileApp/android/app/src/main/assets/models/nsfw.tflite`. Rebuild required after model changes (`npm run android`). In `__DEV__`, use the **NSFW TFLite debug** panel to re-classify the last capture.
 
 **New API fields** on `POST /api/screen-events`: `imageRiskScore`, `imageClassificationDetails`, `combinedRiskScore`.
 

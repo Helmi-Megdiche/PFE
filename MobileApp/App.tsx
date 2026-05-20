@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, SafeAreaView, StatusBar, StyleSheet, Text} from 'react-native';
 import {AppApiBootstrap} from './src/auth/AppApiBootstrap';
+import {NsfwDebugPanel} from './src/components/NsfwDebugPanel';
 import {ScreenMonitor} from './src/components/ScreenMonitor';
 import {UsageTracker} from './src/components/UsageTracker';
 import {tokenStorage} from './src/auth/tokenStorage';
@@ -39,6 +40,7 @@ function App(): React.JSX.Element {
           </Text>
         ) : null}
         <ScreenMonitor consentGranted={consentGranted} intervalMs={60000} />
+        {__DEV__ ? <NsfwDebugPanel /> : null}
         <UsageTracker enabled={consentGranted} />
       </SafeAreaView>
     </AppApiBootstrap>

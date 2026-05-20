@@ -23,6 +23,7 @@ import {
 } from '../utils/adaptiveCapture';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
+import { setLastCapturePath } from '../utils/lastCapturePath';
 import {
   hasUsageAccess,
   openUsageAccessSettings,
@@ -232,6 +233,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
       isProcessingRef.current = true;
       const { filePath, imageUri, appPackage } = event;
+      setLastCapturePath(filePath);
       const ocrInput = toMlKitImageUri(imageUri ?? filePath);
       scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
 
@@ -352,7 +354,9 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         setLastError(message);
         return { success: false, error: message };
       } finally {
-        await getScreenCaptureModule().deleteFile(filePath).catch(() => undefined);
+        if (!__DEV__) {
+          await getScreenCaptureModule().deleteFile(filePath).catch(() => undefined);
+        }
         isProcessingRef.current = false;
       }
     },
