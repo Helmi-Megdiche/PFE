@@ -17,6 +17,7 @@ export interface ScreenCaptureNativeModule {
   requestPermission(): Promise<boolean>;
   isPermissionGranted(): Promise<boolean>;
   startCapture(intervalMs: number): Promise<boolean>;
+  captureNow(): Promise<boolean>;
   stopCapture(): Promise<boolean>;
   pauseCapture(): Promise<boolean>;
   resumeCapture(): Promise<boolean>;

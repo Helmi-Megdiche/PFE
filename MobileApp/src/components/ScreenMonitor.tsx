@@ -1,6 +1,7 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -17,8 +18,19 @@ export interface ScreenMonitorProps {
   consentGranted: boolean;
 }
 
+function showUsageAccessDialog(onOpenSettings: () => void): void {
+  Alert.alert(
+    'Usage access required',
+    'To detect which app is on screen (Chrome, Instagram, etc.), enable Usage access for this app in system settings.\n\nWithout it, app names may show as "unknown".',
+    [
+      { text: 'Later', style: 'cancel' },
+      { text: 'Open settings', onPress: onOpenSettings },
+    ],
+  );
+}
+
 export function ScreenMonitor({
-  intervalMs = 30_000,
+  intervalMs = 60_000,
   consentGranted,
 }: ScreenMonitorProps) {
   const [enabled, setEnabled] = useState(false);
@@ -33,12 +45,22 @@ export function ScreenMonitor({
     isMonitoring,
     isPaused,
     permissionGranted,
+    usageAccessGranted,
+    lastForegroundApp,
     lastError,
     lastCaptureAt,
     requestPermission,
+    refreshUsageAccess,
+    openUsageAccessSettings,
     startMonitoring,
     stopMonitoring,
   } = useScreenshotCapture({ intervalMs, onCycleComplete });
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      void refreshUsageAccess();
+    }
+  }, [refreshUsageAccess]);
 
   const handleToggle = useCallback(
     async (value: boolean) => {
@@ -46,13 +68,22 @@ export function ScreenMonitor({
         scWarn('Toggle ignored — busy');
         return;
       }
-      scLog('Toggle', { value, permissionGranted });
+      scLog('Toggle', { value, permissionGranted, usageAccessGranted });
       setIsBusy(true);
       try {
         if (value) {
+          const usageOk = await refreshUsageAccess();
+          if (!usageOk) {
+            showUsageAccessDialog(() => {
+              void openUsageAccessSettings();
+            });
+          }
           const started = await startMonitoring();
           scLog('Toggle ON result', { started });
           setEnabled(started);
+          if (started && !usageOk) {
+            void refreshUsageAccess();
+          }
         } else {
           await stopMonitoring();
           scLog('Toggle OFF done');
@@ -62,14 +93,22 @@ export function ScreenMonitor({
         setIsBusy(false);
       }
     },
-    [isBusy, permissionGranted, startMonitoring, stopMonitoring],
+    [
+      isBusy,
+      permissionGranted,
+      usageAccessGranted,
+      refreshUsageAccess,
+      openUsageAccessSettings,
+      startMonitoring,
+      stopMonitoring,
+    ],
   );
 
   if (Platform.OS !== 'android') {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Surveillance d'écran</Text>
-        <Text style={styles.muted}>Disponible uniquement sur Android.</Text>
+        <Text style={styles.title}>Screen monitoring</Text>
+        <Text style={styles.muted}>Android only.</Text>
       </View>
     );
   }
@@ -77,9 +116,9 @@ export function ScreenMonitor({
   if (!consentGranted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Surveillance d'écran</Text>
+        <Text style={styles.title}>Screen monitoring</Text>
         <Text style={styles.warning}>
-          Le consentement parental (RGPD) est requis avant d'activer la surveillance.
+          Parental consent (GDPR) is required before enabling monitoring.
         </Text>
       </View>
     );
@@ -87,25 +126,41 @@ export function ScreenMonitor({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Surveillance d'écran</Text>
+      <Text style={styles.title}>Screen monitoring</Text>
       <Text style={styles.subtitle}>
-        OCR et analyse sur l'appareil. Aucune capture n'est envoyée au serveur.
+        On-device OCR and vision. Captures on app switch + every 60s fallback. Nothing is
+        uploaded as raw screenshots.
       </Text>
 
       <View style={styles.row}>
-        <Text style={styles.label}>Monitoring actif</Text>
+        <Text style={styles.label}>Monitoring active</Text>
         <Switch
           value={enabled}
           onValueChange={handleToggle}
           disabled={isBusy}
-          accessibilityLabel="Activer ou désactiver la surveillance"
+          accessibilityLabel="Enable or disable monitoring"
         />
+      </View>
+
+      <View style={styles.usageRow}>
+        <Text style={styles.meta}>
+          Usage access: {usageAccessGranted ? 'granted' : 'not granted'}
+        </Text>
+        {!usageAccessGranted && (
+          <Pressable
+            onPress={() => {
+              showUsageAccessDialog(() => void openUsageAccessSettings());
+            }}
+            accessibilityRole="button">
+            <Text style={styles.link}>Enable</Text>
+          </Pressable>
+        )}
       </View>
 
       {isBusy && (
         <View style={styles.statusRow}>
           <ActivityIndicator size="small" color="#2563eb" />
-          <Text style={styles.status}>Démarrage…</Text>
+          <Text style={styles.status}>Starting…</Text>
         </View>
       )}
 
@@ -113,31 +168,37 @@ export function ScreenMonitor({
         <View style={styles.statusRow}>
           <ActivityIndicator size="small" color="#2563eb" />
           <Text style={styles.status}>
-            Capture toutes les {Math.round(intervalMs / 1000)}s
-            {isPaused ? ' (en pause)' : ''}
+            Smart capture: app switch + 60s fallback
+            {lastForegroundApp && lastForegroundApp !== 'unknown'
+              ? ` · ${lastForegroundApp}`
+              : ''}
+            {isPaused ? ' (paused)' : ''}
           </Text>
         </View>
       )}
 
       {lastCaptureAt && (
-        <Text style={styles.meta}>Dernière sync : {new Date(lastCaptureAt).toLocaleString()}</Text>
+        <Text style={styles.meta}>Last sync: {new Date(lastCaptureAt).toLocaleString()}</Text>
       )}
 
       {lastResult?.event && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Dernier événement</Text>
-          <Text style={styles.meta}>App : {lastResult.event.appPackage}</Text>
+          <Text style={styles.cardTitle}>Last event</Text>
           <Text style={styles.meta}>
-            Risque : {lastResult.event.riskFlag ? 'oui' : 'non'} ({lastResult.event.category})
+            App: {lastResult.event.appLabel ?? lastResult.event.appPackage}
+          </Text>
+          <Text style={styles.meta}>Package: {lastResult.event.appPackage}</Text>
+          <Text style={styles.meta}>
+            Risk: {lastResult.event.riskFlag ? 'yes' : 'no'} ({lastResult.event.category})
           </Text>
           <Text style={styles.preview} numberOfLines={3}>
-            {lastResult.event.extractedTextPreview || '(aucun texte détecté)'}
+            {lastResult.event.extractedTextPreview || '(no text detected)'}
           </Text>
         </View>
       )}
 
       {lastResult?.skippedReason && (
-        <Text style={styles.muted}>Cycle ignoré : {lastResult.skippedReason}</Text>
+        <Text style={styles.muted}>Cycle skipped: {lastResult.skippedReason}</Text>
       )}
 
       {lastError && <Text style={styles.error}>{lastError}</Text>}
@@ -147,7 +208,7 @@ export function ScreenMonitor({
         onPress={() => void requestPermission()}
         disabled={isBusy}
         accessibilityRole="button">
-        <Text style={styles.buttonText}>Demander permission MediaProjection</Text>
+        <Text style={styles.buttonText}>Request MediaProjection permission</Text>
       </Pressable>
     </View>
   );
@@ -163,10 +224,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 8,
   },
+  usageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   label: { fontSize: 16, color: '#1e293b' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  status: { fontSize: 14, color: '#2563eb' },
+  status: { fontSize: 14, color: '#2563eb', flex: 1 },
   meta: { fontSize: 13, color: '#64748b' },
+  link: { fontSize: 13, color: '#2563eb', fontWeight: '600' },
   card: {
     backgroundColor: '#f8fafc',
     borderRadius: 8,

@@ -38,7 +38,7 @@ function App(): React.JSX.Element {
             JWT error: {tokenError}. Start backend on port 3000.
           </Text>
         ) : null}
-        <ScreenMonitor consentGranted={consentGranted} intervalMs={30000} />
+        <ScreenMonitor consentGranted={consentGranted} intervalMs={60000} />
         <UsageTracker enabled={consentGranted} />
       </SafeAreaView>
     </AppApiBootstrap>

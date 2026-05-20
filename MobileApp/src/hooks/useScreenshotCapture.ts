@@ -18,14 +18,23 @@ import {
 } from '../utils/riskCombination';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
-import { getCurrentForegroundApp, hasUsageAccess } from '../native/ForegroundApp';
+import {
+  hasUsageAccess,
+  openUsageAccessSettings,
+  resolveForegroundApp,
+} from '../native/ForegroundApp';
 import type {
   CaptureCycleResult,
   ScreenEventPayload,
   ScreenshotCaptureConfig,
 } from '../types/screenMonitor';
 
-const DEFAULT_INTERVAL_MS = 30_000;
+/** Native periodic safety net (Sprint 3.7). */
+const PERIODIC_INTERVAL_MS = 60_000;
+/** JS fallback only if no capture in this window. */
+const PERIODIC_FALLBACK_GAP_MS = 40_000;
+const APP_POLL_MS = 1_000;
+const CAPTURE_DEBOUNCE_MS = 5_000;
 const DEFAULT_MAX_TEXT = 500;
 
 interface UseScreenshotCaptureOptions extends ScreenshotCaptureConfig {
@@ -51,18 +60,25 @@ async function logNativeDebugState(label: string): Promise<void> {
 }
 
 export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) {
-  const { intervalMs = DEFAULT_INTERVAL_MS, maxTextLength = DEFAULT_MAX_TEXT, onCycleComplete } =
-    options;
+  const {
+    intervalMs = PERIODIC_INTERVAL_MS,
+    maxTextLength = DEFAULT_MAX_TEXT,
+    onCycleComplete,
+  } = options;
 
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [usageAccessGranted, setUsageAccessGranted] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastCaptureAt, setLastCaptureAt] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [lastForegroundApp, setLastForegroundApp] = useState<string | null>(null);
 
   const isProcessingRef = useRef(false);
   const isStartingRef = useRef(false);
   const isMonitoringRef = useRef(false);
+  const lastCaptureMsRef = useRef(0);
+  const lastAppPackageRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMonitoringRef.current = isMonitoring;
@@ -100,29 +116,26 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
 
       try {
-        let resolvedPackage = appPackage && appPackage !== 'unknown' ? appPackage : 'unknown';
-        let resolvedLabel: string | null = null;
+        const fg =
+          Platform.OS === 'android'
+            ? await resolveForegroundApp()
+            : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
-        if (Platform.OS === 'android') {
-          try {
-            const usageOk = await hasUsageAccess();
-            if (!usageOk) {
-              scWarn('Usage access not granted — open system settings to detect foreground app');
-            } else {
-              const fg = await getCurrentForegroundApp();
-              if (fg?.packageName) {
-                resolvedPackage = fg.packageName;
-                resolvedLabel = fg.appLabel ?? fg.packageName;
-                scLog('Foreground app', {
-                  package: resolvedPackage,
-                  label: resolvedLabel,
-                });
-              }
-            }
-          } catch (fgErr) {
-            scWarn('Foreground app detection failed', fgErr);
-          }
-        }
+        const resolvedPackage =
+          fg.packageName && fg.packageName !== 'unknown'
+            ? fg.packageName
+            : appPackage && appPackage !== 'unknown'
+              ? appPackage
+              : 'unknown';
+        const resolvedLabel =
+          fg.appLabel && fg.appLabel !== 'unknown' ? fg.appLabel : resolvedPackage;
+
+        scLog('Foreground app', {
+          package: resolvedPackage,
+          label: resolvedLabel,
+          source: fg.source,
+        });
+        setLastForegroundApp(resolvedPackage);
 
         const [ocrResult, imageClassification] = await Promise.all([
           TextRecognition.recognize(ocrInput),
@@ -139,9 +152,13 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           category: keywordResult.category,
         });
 
+        const visionScore =
+          imageClassification.imageClassificationDetails?.imageRiskScore ??
+          imageClassification.imageRiskScore;
+
         scLog('Image classification', {
           source: imageClassification.source,
-          imageRiskScore,
+          imageRiskScore: visionScore,
           violence: imageClassification.violenceScore.toFixed(2),
           adult: imageClassification.adultScore.toFixed(2),
         });
@@ -212,6 +229,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         await postScreenEvent(payload);
         scLog('POST /api/screen-events OK');
         setLastCaptureAt(payload.timestamp);
+        lastCaptureMsRef.current = Date.now();
         setLastError(null);
 
         return { success: true, event: payload };
@@ -270,6 +288,31 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     }
   }, []);
 
+  const refreshUsageAccess = useCallback(async (): Promise<boolean> => {
+    const ok = await hasUsageAccess();
+    setUsageAccessGranted(ok);
+    return ok;
+  }, []);
+
+  const tryCaptureNow = useCallback(async (reason: string): Promise<void> => {
+    if (!isMonitoringRef.current || isProcessingRef.current) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastCaptureMsRef.current < CAPTURE_DEBOUNCE_MS) {
+      scLog('Smart capture skipped (debounce)', { reason, elapsed: now - lastCaptureMsRef.current });
+      return;
+    }
+    try {
+      const triggered = await getScreenCaptureModule().captureNow();
+      if (triggered) {
+        scLog('Smart capture triggered', { reason });
+      }
+    } catch (err) {
+      scWarn('captureNow failed', { reason, err });
+    }
+  }, []);
+
   const startMonitoring = useCallback(async (): Promise<boolean> => {
     if (Platform.OS !== 'android') {
       scWarn('startMonitoring: not Android');
@@ -281,8 +324,14 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     }
 
     isStartingRef.current = true;
-    scLog('startMonitoring() start', { intervalMs });
+    const periodicMs = Math.max(PERIODIC_INTERVAL_MS, intervalMs);
+    scLog('startMonitoring() start', { periodicMs, smartCapture: true });
     await logNativeDebugState('before startMonitoring');
+
+    const usageOk = await refreshUsageAccess();
+    if (!usageOk) {
+      scWarn('Usage access not granted — foreground app may be approximate until enabled');
+    }
 
     try {
       const native = getScreenCaptureModule();
@@ -302,14 +351,24 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
       await logNativeDebugState('before startCapture');
       scLog('Calling native startCapture()…');
-      await native.startCapture(intervalMs);
+      await native.startCapture(periodicMs);
       await logNativeDebugState('after startCapture');
+
+      lastCaptureMsRef.current = 0;
+      lastAppPackageRef.current = null;
+
+      const initialFg = await resolveForegroundApp();
+      lastAppPackageRef.current = initialFg.packageName;
+      setLastForegroundApp(initialFg.packageName);
 
       setPermissionGranted(true);
       setIsMonitoring(true);
       setIsPaused(false);
       setLastError(null);
-      scLog('startMonitoring() SUCCESS');
+      scLog('startMonitoring() SUCCESS — app-switch poll + periodic fallback', {
+        periodicMs,
+        appPollMs: APP_POLL_MS,
+      });
       return true;
     } catch (err) {
       scError('startMonitoring() failed', err);
@@ -321,7 +380,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     } finally {
       isStartingRef.current = false;
     }
-  }, [intervalMs, requestPermission]);
+  }, [intervalMs, refreshUsageAccess, requestPermission]);
 
   const stopMonitoring = useCallback(async (): Promise<void> => {
     if (Platform.OS !== 'android') {
@@ -402,7 +461,49 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     };
   }, [onCycleComplete, processCapturedFrame]);
 
-  // Continuous monitoring: no pause/resume on AppState — native FGS keeps MediaProjection alive.
+  // Smart capture: poll foreground app (1s) + periodic fallback (60s if idle 40s+).
+  useEffect(() => {
+    if (!isMonitoring || Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const appPollId = setInterval(() => {
+      void (async () => {
+        const fg = await resolveForegroundApp();
+        const pkg = fg.packageName;
+        if (
+          lastAppPackageRef.current !== null &&
+          pkg !== 'unknown' &&
+          pkg !== lastAppPackageRef.current
+        ) {
+          scLog('App switch detected', {
+            from: lastAppPackageRef.current,
+            to: pkg,
+            label: fg.appLabel,
+          });
+          await tryCaptureNow('app_switch');
+        }
+        if (pkg !== 'unknown') {
+          lastAppPackageRef.current = pkg;
+          setLastForegroundApp(pkg);
+        }
+      })();
+    }, APP_POLL_MS);
+
+    const periodicId = setInterval(() => {
+      const elapsed = Date.now() - lastCaptureMsRef.current;
+      if (lastCaptureMsRef.current === 0 || elapsed >= PERIODIC_FALLBACK_GAP_MS) {
+        void tryCaptureNow('periodic_fallback');
+      }
+    }, PERIODIC_INTERVAL_MS);
+
+    scLog('Smart capture timers started');
+    return () => {
+      clearInterval(appPollId);
+      clearInterval(periodicId);
+      scLog('Smart capture timers stopped');
+    };
+  }, [isMonitoring, tryCaptureNow]);
 
   useEffect(() => {
     return () => {
@@ -415,9 +516,13 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     isMonitoring,
     isPaused,
     permissionGranted,
+    usageAccessGranted,
+    lastForegroundApp,
     lastError,
     lastCaptureAt,
     requestPermission,
+    refreshUsageAccess,
+    openUsageAccessSettings,
     startMonitoring,
     stopMonitoring,
     pauseCapture,

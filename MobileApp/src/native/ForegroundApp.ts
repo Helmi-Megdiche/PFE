@@ -1,13 +1,16 @@
 import { Linking, NativeModules, Platform } from 'react-native';
+import { scLog, scWarn } from '../utils/screenCaptureLogger';
 
 export interface ForegroundAppInfo {
   packageName: string;
   appLabel: string;
   lastTimeUsed?: number;
+  source?: 'usage_stats' | 'activity_manager' | 'none';
 }
 
 interface ForegroundAppNativeModule {
   hasUsageAccess(): Promise<boolean>;
+  hasUsageStatsPermission(): Promise<boolean>;
   openUsageAccessSettings(): Promise<boolean>;
   getCurrentForegroundApp(): Promise<ForegroundAppInfo | null>;
 }
@@ -32,6 +35,10 @@ export async function hasUsageAccess(): Promise<boolean> {
   }
 }
 
+export async function hasUsageStatsPermission(): Promise<boolean> {
+  return hasUsageAccess();
+}
+
 export async function openUsageAccessSettings(): Promise<void> {
   const mod = getModule();
   if (mod) {
@@ -45,6 +52,39 @@ export async function openUsageAccessSettings(): Promise<void> {
   await Linking.openSettings();
 }
 
+/**
+ * Resolves foreground app — never throws; returns unknown if module missing.
+ */
+export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
+  const mod = getModule();
+  if (!mod) {
+    scWarn('ForegroundApp module not linked');
+    return { packageName: 'unknown', appLabel: 'unknown', source: 'none' };
+  }
+
+  try {
+    const fg = await mod.getCurrentForegroundApp();
+    if (fg?.packageName) {
+      scLog('resolveForegroundApp', {
+        package: fg.packageName,
+        label: fg.appLabel,
+        source: fg.source ?? 'usage_stats',
+      });
+      return {
+        packageName: fg.packageName,
+        appLabel: fg.appLabel ?? fg.packageName,
+        lastTimeUsed: fg.lastTimeUsed,
+        source: (fg.source as ForegroundAppInfo['source']) ?? 'usage_stats',
+      };
+    }
+  } catch (err) {
+    scWarn('resolveForegroundApp failed', err);
+  }
+
+  return { packageName: 'unknown', appLabel: 'unknown', source: 'none' };
+}
+
+/** @deprecated Prefer resolveForegroundApp() — does not throw when permission missing. */
 export async function getCurrentForegroundApp(): Promise<ForegroundAppInfo | null> {
   const mod = getModule();
   if (!mod) {

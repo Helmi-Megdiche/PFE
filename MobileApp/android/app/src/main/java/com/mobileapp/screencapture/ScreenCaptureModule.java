@@ -58,6 +58,7 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
     public static final String EVENT_DEBUG_LOG = "onScreenCaptureLog";
 
     private static final int MIN_BATTERY_PERCENT = 15;
+    private static final long MIN_CAPTURE_INTERVAL_MS = 5_000;
     private static final String VIRTUAL_DISPLAY_NAME = "PFE_ScreenCapture";
     private static final String CAPTURES_DIR = "screen_captures";
 
@@ -72,7 +73,7 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
     private HandlerThread captureThread;
     private Handler captureHandler;
 
-    private int intervalMs = 30_000;
+    private int intervalMs = 60_000;
     private int screenWidth;
     private int screenHeight;
     private int screenDensity;
@@ -85,6 +86,7 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
 
     private Runnable captureLoopRunnable;
     private Promise permissionPromise;
+    private long lastCaptureEmittedAtMs = 0;
 
     /** Singleton for optional MainActivity forwarding. */
     private static volatile ScreenCaptureModule instance;
@@ -321,6 +323,43 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
         isPaused.set(true);
         promise.resolve(true);
         Log.i(TAG, "pauseCapture");
+    }
+
+    /**
+     * Triggers one capture immediately (smart capture — app switch). Debounced to 5s minimum.
+     */
+    @ReactMethod
+    public void captureNow(Promise promise) {
+        logJs("captureNow() — running=" + isRunning.get() + " paused=" + isPaused.get());
+        if (!isRunning.get()) {
+            promise.reject("E_NOT_RUNNING", "Capture loop not started — call startCapture first");
+            return;
+        }
+        if (isPaused.get()) {
+            promise.reject("E_PAUSED", "Capture is paused");
+            return;
+        }
+        if (!isProjectionReady.get()) {
+            promise.reject("E_NO_PERMISSION", "MediaProjection not granted");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastCaptureEmittedAtMs < MIN_CAPTURE_INTERVAL_MS) {
+            logJs("captureNow skipped — debounce (" + (now - lastCaptureEmittedAtMs) + "ms)");
+            promise.resolve(false);
+            return;
+        }
+        if (shouldSkipCapture()) {
+            promise.resolve(false);
+            return;
+        }
+        try {
+            ensureVirtualDisplay();
+            captureSingleFrame();
+            promise.resolve(true);
+        } catch (Exception e) {
+            promise.reject("E_CAPTURE_NOW", e.getMessage(), e);
+        }
     }
 
     @ReactMethod
@@ -660,6 +699,7 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
             map.putString("imageUri", imageUri);
             map.putString("appPackage", "unknown");
             map.putDouble("timestamp", System.currentTimeMillis());
+            lastCaptureEmittedAtMs = System.currentTimeMillis();
             logJs("emitScreenCaptured uri=" + imageUri);
             sendEvent(EVENT_SCREEN_CAPTURED, map);
         });
