@@ -117,7 +117,7 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
-Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`.
+Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. If Usage Stats misses the app at capture time, the last package from the 1s poll is used (`cached_poll`) instead of `unknown`.
 
 ---
 

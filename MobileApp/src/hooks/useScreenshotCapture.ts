@@ -245,19 +245,32 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
             ? await resolveForegroundApp()
             : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
+        const cachedPackage =
+          lastAppPackageRef.current && lastAppPackageRef.current !== 'unknown'
+            ? lastAppPackageRef.current
+            : null;
+
         const resolvedPackage =
           fg.packageName && fg.packageName !== 'unknown'
             ? fg.packageName
             : appPackage && appPackage !== 'unknown'
               ? appPackage
-              : 'unknown';
+              : cachedPackage ?? 'unknown';
+
         const resolvedLabel =
-          fg.appLabel && fg.appLabel !== 'unknown' ? fg.appLabel : resolvedPackage;
+          fg.appLabel && fg.appLabel !== 'unknown' && fg.packageName === resolvedPackage
+            ? fg.appLabel
+            : resolvedPackage;
 
         scLog('Foreground app', {
           package: resolvedPackage,
           label: resolvedLabel,
-          source: fg.source,
+          source:
+            fg.packageName === resolvedPackage
+              ? fg.source
+              : cachedPackage === resolvedPackage
+                ? 'cached_poll'
+                : fg.source,
         });
         setLastForegroundApp(resolvedPackage);
 
