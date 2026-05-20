@@ -34,3 +34,11 @@ coverage/
 
 # Tesseract language data (large binaries)
 *.traineddata
+
+# Python (training scripts)
+training/.venv/
+training/out/
+__pycache__/
+*.pyc
+*.h5
+*.tflite

@@ -1,0 +1,4 @@
+tensorflow==2.15.0
+numpy>=1.23,<2.0
+matplotlib>=3.7,<4
+pillow>=10,<11

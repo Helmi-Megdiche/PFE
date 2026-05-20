@@ -437,6 +437,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.5** | — | Complete | **Debug & foreground** — `POST /api/debug/classify` (backend nsfwjs + Tesseract OCR), `demo_dashboard.html`, `ForegroundAppModule` (UsageStats), shared `riskMapping.ts` (mobile + backend), `app_label` migration |
 | **3.6** | — | Complete | **Accuracy improvements** — expanded ML Kit mapping (weapons, drugs, gore, adult, hentai proxy), `enforceCategoryConsistency`, explicit OCR boosts & overrides, `nsfwClassifier` proxy (no tfjs on device) |
 | **3.7** | — | Complete | **Adaptive capture** — immediate capture on app switch, follow-up after 5s, risk-based dynamic intervals (10s / 30s / 60s from rolling average of last 3 scores), 5s debounce |
+| **3.8** | — | In progress | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite` for on-device inference. See [`training/README_train.md`](training/README_train.md) |
 | **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
