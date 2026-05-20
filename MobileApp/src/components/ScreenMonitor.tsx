@@ -47,6 +47,8 @@ export function ScreenMonitor({
     permissionGranted,
     usageAccessGranted,
     lastForegroundApp,
+    dynamicIntervalMs,
+    avgRiskScore,
     lastError,
     lastCaptureAt,
     requestPermission,
@@ -168,7 +170,8 @@ export function ScreenMonitor({
         <View style={styles.statusRow}>
           <ActivityIndicator size="small" color="#2563eb" />
           <Text style={styles.status}>
-            Smart capture: app switch + 60s fallback
+            Adaptive: every {Math.round(dynamicIntervalMs / 1000)}s
+            {avgRiskScore != null ? ` · avg risk ${avgRiskScore}` : ''}
             {lastForegroundApp && lastForegroundApp !== 'unknown'
               ? ` · ${lastForegroundApp}`
               : ''}

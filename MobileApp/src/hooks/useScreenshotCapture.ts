@@ -16,6 +16,11 @@ import {
   enforceCategoryConsistency,
   resolveFinalCategoryWithScore,
 } from '../utils/riskCombination';
+import {
+  computeAdaptiveIntervalMs,
+  pushRiskScore,
+  RISK_INTERVAL_LOW_MS,
+} from '../utils/adaptiveCapture';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { toMlKitImageUri } from '../utils/imageUri';
 import {
@@ -29,12 +34,11 @@ import type {
   ScreenshotCaptureConfig,
 } from '../types/screenMonitor';
 
-/** Native periodic safety net (Sprint 3.7). */
-const PERIODIC_INTERVAL_MS = 60_000;
-/** JS fallback only if no capture in this window. */
-const PERIODIC_FALLBACK_GAP_MS = 40_000;
 const APP_POLL_MS = 1_000;
 const CAPTURE_DEBOUNCE_MS = 5_000;
+const FOLLOW_UP_DELAY_MS = 5_000;
+/** Skip follow-up if a capture completed within this window. */
+const FOLLOW_UP_MIN_GAP_MS = 2_000;
 const DEFAULT_MAX_TEXT = 500;
 
 interface UseScreenshotCaptureOptions extends ScreenshotCaptureConfig {
@@ -46,7 +50,6 @@ function truncateText(text: string, maxLen: number): string {
   if (trimmed.length <= maxLen) {
     return trimmed;
   }
-  // Stay within API max (500) — do not append "…" or Joi rejects the payload
   return trimmed.slice(0, maxLen);
 }
 
@@ -61,7 +64,7 @@ async function logNativeDebugState(label: string): Promise<void> {
 
 export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) {
   const {
-    intervalMs = PERIODIC_INTERVAL_MS,
+    intervalMs = RISK_INTERVAL_LOW_MS,
     maxTextLength = DEFAULT_MAX_TEXT,
     onCycleComplete,
   } = options;
@@ -73,6 +76,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const [lastCaptureAt, setLastCaptureAt] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [lastForegroundApp, setLastForegroundApp] = useState<string | null>(null);
+  const [dynamicIntervalMs, setDynamicIntervalMs] = useState(RISK_INTERVAL_LOW_MS);
+  const [avgRiskScore, setAvgRiskScore] = useState<number | null>(null);
 
   const isProcessingRef = useRef(false);
   const isStartingRef = useRef(false);
@@ -80,11 +85,16 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const lastCaptureMsRef = useRef(0);
   const lastAppPackageRef = useRef<string | null>(null);
 
+  const riskHistoryRef = useRef<number[]>([]);
+  const dynamicIntervalMsRef = useRef(RISK_INTERVAL_LOW_MS);
+  const periodicTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     isMonitoringRef.current = isMonitoring;
   }, [isMonitoring]);
 
-  // Forward native Android logs to Metro
   useEffect(() => {
     if (Platform.OS !== 'android') {
       return undefined;
@@ -102,6 +112,116 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       scLog('Hook unmounted');
     };
   }, []);
+
+  const clearAdaptiveTimers = useCallback(() => {
+    if (periodicTimerRef.current) {
+      clearTimeout(periodicTimerRef.current);
+      periodicTimerRef.current = null;
+    }
+    if (followUpTimerRef.current) {
+      clearTimeout(followUpTimerRef.current);
+      followUpTimerRef.current = null;
+    }
+    if (appPollTimerRef.current) {
+      clearInterval(appPollTimerRef.current);
+      appPollTimerRef.current = null;
+    }
+  }, []);
+
+  const tryCaptureNow = useCallback(async (reason: string): Promise<void> => {
+    if (!isMonitoringRef.current || isProcessingRef.current) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastCaptureMsRef.current < CAPTURE_DEBOUNCE_MS) {
+      scLog('Capture skipped (debounce)', {
+        reason,
+        elapsedMs: now - lastCaptureMsRef.current,
+      });
+      return;
+    }
+    try {
+      const triggered = await getScreenCaptureModule().captureNow();
+      if (triggered) {
+        scLog('Capture triggered', { reason });
+      }
+    } catch (err) {
+      scWarn('captureNow failed', { reason, err });
+    }
+  }, []);
+
+  const resetPeriodicTimer = useCallback(() => {
+    if (periodicTimerRef.current) {
+      clearTimeout(periodicTimerRef.current);
+      periodicTimerRef.current = null;
+    }
+    if (!isMonitoringRef.current) {
+      return;
+    }
+
+    const scheduleTick = () => {
+      const delay = dynamicIntervalMsRef.current;
+      periodicTimerRef.current = setTimeout(() => {
+        periodicTimerRef.current = null;
+        if (!isMonitoringRef.current) {
+          return;
+        }
+        void tryCaptureNow('periodic_adaptive').finally(() => {
+          if (isMonitoringRef.current) {
+            scheduleTick();
+          }
+        });
+      }, delay);
+    };
+
+    scLog('Periodic adaptive timer (re)started', {
+      intervalMs: dynamicIntervalMsRef.current,
+    });
+    scheduleTick();
+  }, [tryCaptureNow]);
+
+  const updateRiskAndInterval = useCallback(
+    (newRiskScore: number) => {
+      riskHistoryRef.current = pushRiskScore(riskHistoryRef.current, newRiskScore);
+      const avg =
+        riskHistoryRef.current.reduce((sum, s) => sum + s, 0) /
+        riskHistoryRef.current.length;
+      const nextInterval = computeAdaptiveIntervalMs(riskHistoryRef.current);
+
+      setAvgRiskScore(Math.round(avg));
+
+      if (nextInterval !== dynamicIntervalMsRef.current) {
+        dynamicIntervalMsRef.current = nextInterval;
+        setDynamicIntervalMs(nextInterval);
+        scLog('Adaptive interval changed', {
+          avgRisk: Math.round(avg),
+          history: [...riskHistoryRef.current],
+          intervalMs: nextInterval,
+        });
+        resetPeriodicTimer();
+      }
+    },
+    [resetPeriodicTimer],
+  );
+
+  const scheduleFollowUpCapture = useCallback(
+    (delayMs: number) => {
+      if (followUpTimerRef.current) {
+        clearTimeout(followUpTimerRef.current);
+      }
+      followUpTimerRef.current = setTimeout(() => {
+        followUpTimerRef.current = null;
+        const elapsed = Date.now() - lastCaptureMsRef.current;
+        if (elapsed < FOLLOW_UP_MIN_GAP_MS) {
+          scLog('Follow-up skipped — capture too recent', { elapsedMs: elapsed });
+          return;
+        }
+        void tryCaptureNow('app_switch_follow_up');
+      }, delayMs);
+      scLog('Follow-up capture scheduled', { delayMs });
+    },
+    [tryCaptureNow],
+  );
 
   const processCapturedFrame = useCallback(
     async (event: ScreenCapturedEvent): Promise<CaptureCycleResult> => {
@@ -147,21 +267,9 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         scLog('OCR done', { chars: preview.length, preview: preview.slice(0, 80) });
 
         const keywordResult = keywordFilter(preview);
-        scLog('Keyword filter', {
-          riskFlag: keywordResult.riskFlag,
-          category: keywordResult.category,
-        });
-
         const visionScore =
           imageClassification.imageClassificationDetails?.imageRiskScore ??
           imageClassification.imageRiskScore;
-
-        scLog('Image classification', {
-          source: imageClassification.source,
-          imageRiskScore: visionScore,
-          violence: imageClassification.violenceScore.toFixed(2),
-          adult: imageClassification.adultScore.toFixed(2),
-        });
 
         const ocrRiskScore = computeOcrRiskScore(
           keywordResult.riskFlag,
@@ -232,6 +340,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         lastCaptureMsRef.current = Date.now();
         setLastError(null);
 
+        updateRiskAndInterval(combinedRiskScore);
+
         return { success: true, event: payload };
       } catch (err) {
         scError('processCapturedFrame failed', err);
@@ -246,7 +356,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         isProcessingRef.current = false;
       }
     },
-    [maxTextLength],
+    [maxTextLength, updateRiskAndInterval],
   );
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
@@ -259,29 +369,21 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     try {
       const native = getScreenCaptureModule();
       const alreadyGranted = await native.isPermissionGranted();
-      scLog('isPermissionGranted (pre-check)', { alreadyGranted });
       if (alreadyGranted) {
         setPermissionGranted(true);
-        await logNativeDebugState('already granted');
         return true;
       }
 
-      scLog('Launching system MediaProjection dialog…');
       const granted = await native.requestPermission();
-      scLog('requestPermission() result', { granted });
-      await logNativeDebugState('after requestPermission');
-
       setPermissionGranted(granted);
       if (!granted) {
         setLastError('MediaProjection permission denied');
-        scWarn('User denied MediaProjection');
       } else {
         setLastError(null);
       }
       return granted;
     } catch (err) {
       scError('requestPermission() threw', err);
-      await logNativeDebugState('requestPermission error');
       const message = err instanceof Error ? err.message : String(err);
       setLastError(message);
       return false;
@@ -294,66 +396,70 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     return ok;
   }, []);
 
-  const tryCaptureNow = useCallback(async (reason: string): Promise<void> => {
-    if (!isMonitoringRef.current || isProcessingRef.current) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastCaptureMsRef.current < CAPTURE_DEBOUNCE_MS) {
-      scLog('Smart capture skipped (debounce)', { reason, elapsed: now - lastCaptureMsRef.current });
-      return;
-    }
-    try {
-      const triggered = await getScreenCaptureModule().captureNow();
-      if (triggered) {
-        scLog('Smart capture triggered', { reason });
-      }
-    } catch (err) {
-      scWarn('captureNow failed', { reason, err });
-    }
-  }, []);
+  const startSmartCaptureTimers = useCallback(() => {
+    clearAdaptiveTimers();
+
+    appPollTimerRef.current = setInterval(() => {
+      void (async () => {
+        const fg = await resolveForegroundApp();
+        const pkg = fg.packageName;
+        if (
+          lastAppPackageRef.current !== null &&
+          pkg !== 'unknown' &&
+          pkg !== lastAppPackageRef.current
+        ) {
+          scLog('App switch detected', {
+            from: lastAppPackageRef.current,
+            to: pkg,
+            label: fg.appLabel,
+          });
+          await tryCaptureNow('app_switch');
+          scheduleFollowUpCapture(FOLLOW_UP_DELAY_MS);
+        }
+        if (pkg !== 'unknown') {
+          lastAppPackageRef.current = pkg;
+          setLastForegroundApp(pkg);
+        }
+      })();
+    }, APP_POLL_MS);
+
+    resetPeriodicTimer();
+    scLog('Smart capture timers started (adaptive)');
+  }, [clearAdaptiveTimers, resetPeriodicTimer, scheduleFollowUpCapture, tryCaptureNow]);
 
   const startMonitoring = useCallback(async (): Promise<boolean> => {
     if (Platform.OS !== 'android') {
-      scWarn('startMonitoring: not Android');
       return false;
     }
     if (isStartingRef.current) {
-      scWarn('startMonitoring: already starting');
       return false;
     }
 
     isStartingRef.current = true;
-    const periodicMs = Math.max(PERIODIC_INTERVAL_MS, intervalMs);
-    scLog('startMonitoring() start', { periodicMs, smartCapture: true });
-    await logNativeDebugState('before startMonitoring');
+    const nativePeriodicMs = Math.max(RISK_INTERVAL_LOW_MS, intervalMs);
+    scLog('startMonitoring() start', { nativePeriodicMs, adaptive: true });
 
     const usageOk = await refreshUsageAccess();
     if (!usageOk) {
-      scWarn('Usage access not granted — foreground app may be approximate until enabled');
+      scWarn('Usage access not granted — foreground app may be approximate');
     }
 
     try {
       const native = getScreenCaptureModule();
       let granted = await native.isPermissionGranted();
-      scLog('isPermissionGranted (startMonitoring)', { granted });
-
       if (!granted) {
-        scLog('Permission missing — calling requestPermission()');
         granted = await requestPermission();
-        scLog('After requestPermission', { granted });
       }
-
       if (!granted) {
-        scWarn('startMonitoring aborted — no permission');
         return false;
       }
 
-      await logNativeDebugState('before startCapture');
-      scLog('Calling native startCapture()…');
-      await native.startCapture(periodicMs);
-      await logNativeDebugState('after startCapture');
+      await native.startCapture(nativePeriodicMs);
 
+      riskHistoryRef.current = [];
+      dynamicIntervalMsRef.current = RISK_INTERVAL_LOW_MS;
+      setDynamicIntervalMs(RISK_INTERVAL_LOW_MS);
+      setAvgRiskScore(null);
       lastCaptureMsRef.current = 0;
       lastAppPackageRef.current = null;
 
@@ -365,14 +471,10 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       setIsMonitoring(true);
       setIsPaused(false);
       setLastError(null);
-      scLog('startMonitoring() SUCCESS — app-switch poll + periodic fallback', {
-        periodicMs,
-        appPollMs: APP_POLL_MS,
-      });
+
       return true;
     } catch (err) {
       scError('startMonitoring() failed', err);
-      await logNativeDebugState('startMonitoring error');
       const message = err instanceof Error ? err.message : String(err);
       setLastError(message);
       setIsMonitoring(false);
@@ -387,25 +489,24 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       return;
     }
     scLog('stopMonitoring()');
+    clearAdaptiveTimers();
     try {
       await getScreenCaptureModule().stopCapture();
-      scLog('stopCapture() OK');
     } catch (err) {
       scError('stopMonitoring failed', err);
-      const message = err instanceof Error ? err.message : String(err);
-      setLastError(message);
+      setLastError(err instanceof Error ? err.message : String(err));
     }
     setIsMonitoring(false);
     setIsPaused(false);
     setPermissionGranted(false);
-    await logNativeDebugState('after stopMonitoring');
-  }, []);
+    riskHistoryRef.current = [];
+  }, [clearAdaptiveTimers]);
 
   const pauseCapture = useCallback(async () => {
     if (Platform.OS !== 'android' || !isMonitoring) {
       return;
     }
-    scLog('pauseCapture()');
+    clearAdaptiveTimers();
     try {
       await getScreenCaptureModule().pauseCapture();
       setIsPaused(true);
@@ -413,21 +514,21 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       scError('pauseCapture failed', err);
       setLastError(err instanceof Error ? err.message : String(err));
     }
-  }, [isMonitoring]);
+  }, [isMonitoring, clearAdaptiveTimers]);
 
   const resumeCapture = useCallback(async () => {
     if (Platform.OS !== 'android' || !isMonitoring) {
       return;
     }
-    scLog('resumeCapture()');
     try {
       await getScreenCaptureModule().resumeCapture();
       setIsPaused(false);
+      startSmartCaptureTimers();
     } catch (err) {
       scError('resumeCapture failed', err);
       setLastError(err instanceof Error ? err.message : String(err));
     }
-  }, [isMonitoring]);
+  }, [isMonitoring, startSmartCaptureTimers]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -438,7 +539,6 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       SCREEN_CAPTURE_EVENTS.captured,
       (event: ScreenCapturedEvent) => {
         if (!isMonitoringRef.current) {
-          scWarn('Frame ignored — monitoring off');
           return;
         }
         void processCapturedFrame(event)
@@ -461,56 +561,23 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     };
   }, [onCycleComplete, processCapturedFrame]);
 
-  // Smart capture: poll foreground app (1s) + periodic fallback (60s if idle 40s+).
   useEffect(() => {
-    if (!isMonitoring || Platform.OS !== 'android') {
+    if (!isMonitoring || isPaused || Platform.OS !== 'android') {
+      clearAdaptiveTimers();
       return undefined;
     }
-
-    const appPollId = setInterval(() => {
-      void (async () => {
-        const fg = await resolveForegroundApp();
-        const pkg = fg.packageName;
-        if (
-          lastAppPackageRef.current !== null &&
-          pkg !== 'unknown' &&
-          pkg !== lastAppPackageRef.current
-        ) {
-          scLog('App switch detected', {
-            from: lastAppPackageRef.current,
-            to: pkg,
-            label: fg.appLabel,
-          });
-          await tryCaptureNow('app_switch');
-        }
-        if (pkg !== 'unknown') {
-          lastAppPackageRef.current = pkg;
-          setLastForegroundApp(pkg);
-        }
-      })();
-    }, APP_POLL_MS);
-
-    const periodicId = setInterval(() => {
-      const elapsed = Date.now() - lastCaptureMsRef.current;
-      if (lastCaptureMsRef.current === 0 || elapsed >= PERIODIC_FALLBACK_GAP_MS) {
-        void tryCaptureNow('periodic_fallback');
-      }
-    }, PERIODIC_INTERVAL_MS);
-
-    scLog('Smart capture timers started');
+    startSmartCaptureTimers();
     return () => {
-      clearInterval(appPollId);
-      clearInterval(periodicId);
-      scLog('Smart capture timers stopped');
+      clearAdaptiveTimers();
     };
-  }, [isMonitoring, tryCaptureNow]);
+  }, [isMonitoring, isPaused, startSmartCaptureTimers, clearAdaptiveTimers]);
 
   useEffect(() => {
     return () => {
-      scLog('Cleanup — stopMonitoring on unmount');
+      clearAdaptiveTimers();
       void stopMonitoring();
     };
-  }, [stopMonitoring]);
+  }, [stopMonitoring, clearAdaptiveTimers]);
 
   return {
     isMonitoring,
@@ -518,6 +585,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     permissionGranted,
     usageAccessGranted,
     lastForegroundApp,
+    dynamicIntervalMs,
+    avgRiskScore,
     lastError,
     lastCaptureAt,
     requestPermission,
