@@ -12,6 +12,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@devinikhiya/react-native-tesseractocr": "^0.1.10",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-ml-kit/image-labeling": "^1.4.1",
     "@react-native-ml-kit/text-recognition": "^1.5.2",
@@ -26,6 +27,7 @@
     "@react-native/eslint-config": "0.74.87",
     "@react-native/metro-config": "0.74.87",
     "@react-native/typescript-config": "0.74.87",
+    "@types/jest": "^30.0.0",
     "@types/react": "^18.2.6",
     "@types/react-test-renderer": "^18.0.0",
     "babel-jest": "^29.6.3",

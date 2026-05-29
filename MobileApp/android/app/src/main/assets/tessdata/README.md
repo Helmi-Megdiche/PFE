@@ -1,30 +1,23 @@
-# Tesseract `traineddata` (optional Arabic / mixed-script OCR fallback)
+# Tesseract `traineddata` (on-device Arabic OCR fallback)
 
-The mobile pipeline uses **ML Kit Text Recognition** as its primary OCR engine
-and applies Tunisian Arabizi normalization to catch Derja terms written with
-Latin letters and digits (see `MobileApp/src/utils/normalizeArabizi.ts`).
+Sprint 3.14 enables Android on-device Arabic OCR through
+`@devinikhiya/react-native-tesseractocr` in
+`MobileApp/src/services/mobileArabicOcr.ts`.
 
-A **secondary Tesseract path** is wired up in
-`MobileApp/src/services/mixedScriptOcr.ts` for screenshots that contain Arabic
-Unicode characters or strong Arabizi patterns. The Tesseract path is **disabled
-at runtime** unless a JS or native Tesseract module is reachable; on
-React Native 0.74 the `tesseract.js` web build does not run reliably, so this
-folder is reserved for a future native bridge (e.g. `tess-two` or a custom JNI
-module) that mmap's `.traineddata` from APK assets.
+The capture pipeline is ML Kit-first, then optional Tesseract fallback:
 
-## Files to drop here (when enabling)
+1. ML Kit runs on every screenshot (fast path)
+2. If Arabic Unicode is detected, Android fallback calls Tesseract (`ara@eng`)
+3. OCR remains sequential (no ML Kit/Tesseract concurrency)
 
-Download the **`tessdata_fast`** variants (≈ 1–5 MB each, good accuracy / speed
-trade-off) and place them next to this README:
+## Required file
 
-- `ara.traineddata` — Arabic (script: Arabic)
-- `fra.traineddata` — French (script: Latin)
-- `eng.traineddata` — English (script: Latin)
+- `ara.traineddata` — Arabic model (required for fallback)
 
-Source: https://github.com/tesseract-ocr/tessdata_fast
+Recommended source: https://github.com/tesseract-ocr/tessdata_best
 
-These files are intentionally **not committed** to keep the repository small.
-They are loaded at runtime by the future native Tesseract bridge.
+Keep file name exact and place at:
+`android/app/src/main/assets/tessdata/ara.traineddata`
 
 ## Build config
 

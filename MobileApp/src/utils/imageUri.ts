@@ -12,3 +12,18 @@ export function toMlKitImageUri(filePath: string): string {
   }
   return filePath;
 }
+
+/**
+ * Tesseract Android native code uses BitmapFactory.decodeFile — bare absolute path only.
+ * Prefer the capture event's `filePath` over content:// FileProvider URIs.
+ */
+export function toTesseractImagePath(filePath: string): string | null {
+  if (!filePath) return null;
+  if (filePath.startsWith('content://')) {
+    return null;
+  }
+  if (filePath.startsWith('file://')) {
+    return filePath.slice('file://'.length);
+  }
+  return filePath;
+}
