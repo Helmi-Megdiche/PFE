@@ -70,6 +70,50 @@ describe('keywordFilter — Derja Arabizi (Latin + digits)', () => {
     const r = keywordFilter('I love my Nikon camera');
     expect(r.category).not.toBe('adult');
   });
+
+  it('detects nshammshi as adult', () => {
+    const r = keywordFilter('nshammshi');
+    expect(r.category).toBe('adult');
+    expect(r.riskFlag).toBe(true);
+  });
+
+  it('detects Arabic script قحبة', () => {
+    const r = keywordFilter('قحبة');
+    expect(r.category).toBe('adult');
+    expect(r.riskFlag).toBe(true);
+  });
+
+  it('detects digit obfuscation 9a7ba in isolation', () => {
+    const r = keywordFilter('9a7ba');
+    expect(r.category).toBe('adult');
+  });
+
+  it('detects Latin Derja zebi in Messenger-style text', () => {
+    const r = keywordFilter('Ouh y zebi');
+    expect(r.category).toBe('adult');
+    expect(r.matchedKeywords).toEqual(expect.arrayContaining(['zebi']));
+  });
+
+  it('detects na3l via digit normalisation', () => {
+    const r = keywordFilter('na3l');
+    expect(r.category).toBe('adult');
+  });
+
+  it('detects batruna insult', () => {
+    const r = keywordFilter('batruna');
+    expect(r.category).toBe('adult');
+  });
+
+  it('normalises and detects repeated letters', () => {
+    const r = keywordFilter('zebiiii');
+    expect(r.category).toBe('adult');
+    expect(r.matchedKeywords).toEqual(expect.arrayContaining(['zebi']));
+  });
+
+  it('detects te7chi fih phrase', () => {
+    const r = keywordFilter('te7chi fih');
+    expect(r.category).toBe('adult');
+  });
 });
 
 describe('keywordFilter — normalized Arabizi text', () => {

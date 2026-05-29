@@ -2,6 +2,7 @@ import {
   containsArabicOrArabizi,
   containsArabicScript,
   containsArabiziPattern,
+  containsDigitLetterPattern,
   containsStrongArabizi,
   countArabiziSignals,
   countTransformationDigits,
@@ -88,8 +89,9 @@ describe('containsArabicOrArabizi', () => {
 });
 
 describe('containsStrongArabizi', () => {
-  it('true for Arabic script', () => {
-    expect(containsStrongArabizi('سلام')).toBe(true);
+  it('false for Arabic Unicode text (Arabizi-only gate)', () => {
+    expect(containsStrongArabizi('سلام')).toBe(false);
+    expect(containsStrongArabizi('سكس')).toBe(false);
   });
 
   it('true when at least two digit-letter Arabizi tokens present', () => {
@@ -106,6 +108,16 @@ describe('containsStrongArabizi', () => {
   });
 });
 
+describe('containsDigitLetterPattern', () => {
+  it('true for multi-signal digit Arabizi', () => {
+    expect(containsDigitLetterPattern('9a7ba w 3lik')).toBe(true);
+  });
+
+  it('false for Arabic script without digit Arabizi', () => {
+    expect(containsDigitLetterPattern('كيفك')).toBe(false);
+  });
+});
+
 describe('normalizeArabizi', () => {
   it('maps Arabizi digits to Arabic letters', () => {
     const n = normalizeArabizi('7obb 3lik');
@@ -113,10 +125,29 @@ describe('normalizeArabizi', () => {
     expect(n).toContain('ع');
   });
 
+  it('maps full Tunisian digit set', () => {
+    const nineSeven = normalizeArabizi('9a7ba');
+    expect(nineSeven).toContain('\u0635'); // ص
+    expect(nineSeven).toContain('\u062D'); // ح
+    expect(normalizeArabizi('3abd')).toContain('\u0639'); // ع
+  });
+
+  it('collapses repeated characters (3+ runs)', () => {
+    expect(normalizeArabizi('khaaassa')).toBe('khassa');
+    expect(normalizeArabizi('zebiiii')).toBe('zebi');
+    expect(normalizeArabizi('kaaarrrezz')).toBe('karezz');
+  });
+
+  it('strips obfuscation separators before mapping', () => {
+    const n = normalizeArabizi('9_a-7*ba');
+    expect(n).toContain('\u0635');
+    expect(n).toContain('\u062D');
+  });
+
   it('lowercases and maps digraphs', () => {
-    const n = normalizeArabizi('CHwaya kHla');
+    const n = normalizeArabizi('CHwaya ghrib');
     expect(n).toContain('ش');
-    expect(n).toContain('خ');
+    expect(n).toContain('غ');
   });
 
   it('returns lowercased text when no Arabizi tokens present', () => {

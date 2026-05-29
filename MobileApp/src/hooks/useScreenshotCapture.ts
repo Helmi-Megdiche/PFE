@@ -9,6 +9,7 @@ import { keywordFilter } from '../utils/keywordFilter';
 import { classifyImage } from '../services/imageClassifier';
 import { extractTextMixed } from '../services/mixedScriptOcr';
 import { postScreenEvent } from '../services/screenEventsApi';
+import { withTimeout } from '../utils/withTimeout';
 import {
   applyExplicitOcrBoost,
   applyPostProcessingOverride,
@@ -260,7 +261,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       try {
         const fg =
           Platform.OS === 'android'
-            ? await resolveForegroundAppWithRetry(3, 200)
+            ? await withTimeout(
+                resolveForegroundAppWithRetry(3, 200),
+                4_000,
+                { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+              )
             : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
         const fgPackage = isUsableForegroundPackage(fg.packageName) ? fg.packageName : null;
@@ -312,7 +317,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         setLastForegroundApp(resolvedPackage);
 
         const [ocrMixed, imageClassification] = await Promise.all([
-          extractTextMixed(ocrInput),
+          extractTextMixed(ocrInput, { filePath, appPackage: resolvedPackage }),
           classifyImage(ocrInput, filePath),
         ]);
 
@@ -339,6 +344,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         const keywordResult = devOverlayOcr
           ? { riskFlag: false, category: 'educational' as const, matchedKeywords: [] as string[] }
           : keywordFilter(preview, normalizedText);
+
+        if (keywordResult.riskFlag && __DEV__) {
+          // eslint-disable-next-line no-console
+          console.log('[Risk] Matched keywords:', keywordResult.matchedKeywords);
+        }
 
         const ocrRiskScore = devOverlayOcr
           ? 0

@@ -1,28 +1,31 @@
 /**
- * Hybrid OCR — ML Kit Text Recognition (primary) with Arabizi normalization.
+ * Hybrid OCR — ML Kit first, optional on-device Arabic Tesseract fallback.
  *
- * Tesseract.js is intentionally not loaded here (RN 0.74 + WASM is unreliable).
- * When Arabic script or strong Arabizi is detected, cleaned ML Kit text is passed
- * through normalizeArabizi so keywordFilter can match Derja terms written with
- * Latin letters and digits.
+ * Flow is strictly sequential:
+ * 1) ML Kit runs first (fast path, FR/EN/Arabizi)
+ * 2) On Android, run Tesseract (ara) when ML Kit output has Arabic script OR
+ *    strong Arabizi without Arabic Unicode (garbled Latin from Arabic pages)
  *
- * ML Kit language hints: @react-native-ml-kit/text-recognition v1.5.x only exposes
- * TextRecognitionScript (Latin, Chinese, Devanagari, Japanese, Korean) — no Arabic
- * script option. Default Latin covers French + English + Arabizi; Arabic Unicode
- * relies on ML Kit's Latin recognizer (limited accuracy — documented limitation).
+ * This avoids ML Kit/Tesseract concurrency and keeps non-Arabic captures fast.
  */
 
 import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { Platform } from 'react-native';
+import { extractArabicTextOnDevice } from './mobileArabicOcr';
 import { cleanOcrText } from '../utils/cleanOcrText';
+import { shouldAttemptOnDeviceArabicOcr } from '../utils/arabicOcrTrigger';
+import { toTesseractImagePath } from '../utils/imageUri';
 import {
   containsArabicOrArabizi,
   containsArabicScript,
+  containsDerjaLatinHints,
+  containsDigitLetterPattern,
   containsStrongArabizi,
   normalizeArabizi,
 } from '../utils/normalizeArabizi';
 import { scLog } from '../utils/screenCaptureLogger';
 
-export type MixedOcrSource = 'mlkit' | 'mlkit+normalized';
+export type MixedOcrSource = 'mlkit' | 'mlkit+normalized' | 'mlkit+tesseract';
 
 export interface MixedOcrResult {
   /** Raw ML Kit output (for logging / dashboard preview). */
@@ -31,6 +34,8 @@ export interface MixedOcrResult {
   cleanedText: string;
   source: MixedOcrSource;
   normalizedText?: string;
+  tesseractArabicText?: string;
+  tesseractConfidence?: number;
   hasArabicScript: boolean;
   hasArabiziPattern: boolean;
 }
@@ -59,44 +64,114 @@ function normalizeText(text: string): string {
   }
 }
 
+function tesseractImprovesMlKit(
+  mlText: string,
+  cleanedMlText: string,
+  tesseractText: string,
+): boolean {
+  const cleanedTesseract = cleanOcrText(tesseractText);
+  if (detectArabicScript(tesseractText) || detectArabicScript(cleanedTesseract)) {
+    return true;
+  }
+  // ML Kit missed Arabic entirely; keep Tesseract output if it has substantive text.
+  if (
+    !detectArabicScript(mlText) &&
+    !detectArabicScript(cleanedMlText) &&
+    containsStrongArabizi(cleanedMlText) &&
+    cleanedTesseract.length >= Math.max(20, Math.floor(cleanedMlText.length * 0.25))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Extract text from a screenshot using ML Kit. When Arabic script or actionable
  * Arabizi patterns are detected on cleaned text, also returns normalizedText.
  */
-export async function extractTextMixed(imageUri: string): Promise<MixedOcrResult> {
+export interface MixedOcrOptions {
+  /** Absolute capture path for Tesseract (content:// URIs are not supported natively). */
+  filePath?: string;
+  appPackage?: string;
+}
+
+export async function extractTextMixed(
+  imageUri: string,
+  options?: MixedOcrOptions,
+): Promise<MixedOcrResult> {
   const mlResult = await TextRecognition.recognize(imageUri);
   const mlText = (mlResult?.text ?? '').trim();
-  const cleanedText = cleanOcrText(mlText);
-  const hasArabicScript = detectArabicScript(cleanedText);
-  const hasArabiziPattern = detectActionableArabizi(cleanedText);
+  const cleanedMlText = cleanOcrText(mlText);
+  const hasArabicScript = detectArabicScript(mlText) || detectArabicScript(cleanedMlText);
+  const hasArabiziPattern =
+    detectActionableArabizi(cleanedMlText) || containsDerjaLatinHints(cleanedMlText);
 
-  if (!containsArabicOrArabizi(cleanedText)) {
+  // Arabic fallback path: ML Kit first, then Tesseract sequentially (Android-only).
+  const tesseractPath = toTesseractImagePath(options?.filePath ?? imageUri);
+  if (
+    Platform.OS === 'android' &&
+    tesseractPath &&
+    shouldAttemptOnDeviceArabicOcr(mlText, cleanedMlText, {
+      appPackage: options?.appPackage,
+    })
+  ) {
+    const tesseract = await extractArabicTextOnDevice(tesseractPath);
+    if (tesseract?.text && tesseractImprovesMlKit(mlText, cleanedMlText, tesseract.text)) {
+      const cleanedTesseract = cleanOcrText(tesseract.text);
+      if (__DEV__) {
+        scLog('[OCR] ML Kit + Tesseract Arabic fallback', {
+          mlChars: mlText.length,
+          tesseractChars: tesseract.text.length,
+          cleanedChars: cleanedTesseract.length,
+          confidence: Number(tesseract.confidence.toFixed(2)),
+          trigger: hasArabicScript ? 'arabic_script' : 'garbled_arabizi',
+        });
+      }
+      return {
+        text: tesseract.text,
+        cleanedText: cleanedTesseract,
+        source: 'mlkit+tesseract',
+        tesseractArabicText: tesseract.text,
+        tesseractConfidence: tesseract.confidence,
+        hasArabicScript:
+          detectArabicScript(tesseract.text) || detectArabicScript(cleanedTesseract),
+        hasArabiziPattern: containsDigitLetterPattern(cleanedTesseract),
+      };
+    }
+    if (__DEV__ && tesseract === null) {
+      scLog('[OCR] Tesseract fallback skipped, timed out, or failed — using ML Kit path');
+    }
+  } else if (__DEV__ && Platform.OS === 'android' && shouldAttemptOnDeviceArabicOcr(mlText, cleanedMlText, { appPackage: options?.appPackage }) && !tesseractPath) {
+    scLog('[OCR] Tesseract skipped — no file path (content:// only)');
+  }
+
+  if (!containsArabicOrArabizi(cleanedMlText) && !containsDerjaLatinHints(cleanedMlText)) {
     if (__DEV__) {
-      scLog('[OCR] ML Kit only', { chars: mlText.length, cleanedChars: cleanedText.length });
+      scLog('[OCR] ML Kit only', { chars: mlText.length, cleanedChars: cleanedMlText.length });
     }
     return {
       text: mlText,
-      cleanedText,
+      cleanedText: cleanedMlText,
       source: 'mlkit',
       hasArabicScript,
       hasArabiziPattern,
     };
   }
 
-  const normalizedText = normalizeText(cleanedText);
+  const normalizedText = normalizeText(cleanedMlText);
   if (__DEV__) {
     scLog('[OCR] ML Kit + Arabizi normalization', {
       chars: mlText.length,
-      cleanedChars: cleanedText.length,
+      cleanedChars: cleanedMlText.length,
       arabic: hasArabicScript,
       arabizi: hasArabiziPattern,
-      normalizedChanged: normalizedText !== cleanedText.toLowerCase(),
+      normalizedChanged: normalizedText !== cleanedMlText.toLowerCase(),
     });
   }
 
   return {
     text: mlText,
-    cleanedText,
+    cleanedText: cleanedMlText,
     source: 'mlkit+normalized',
     normalizedText,
     hasArabicScript,

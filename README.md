@@ -442,10 +442,12 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.10** | — | Complete | **Multilingual OCR (FR / AR / Derja)** — French + Arabic + Tunisian Derja Arabizi keyword lists, `normalizeArabizi.ts` (digit-letter → quasi-Arabic), `mixedScriptOcr.ts` (ML Kit primary + graceful Tesseract `ara+fra+eng` fallback), normalized-text channel in `keywordFilter` |
 | **3.11** | — | Complete | **Foreground app accuracy** — UsageEvents window 15s→120s, UsageStats recency filter (5s), capture-time 3× retry (200ms), 15s cache TTL, skip System UI / launcher; fixes Instagram sticking when switching to Messenger |
 | **3.12** | — | Complete | **OCR noise reduction** — `cleanOcrText` strips UI timestamps/counts/phrases; stricter Arabizi gating (≥2 transformation digits, UI number exclusion); documented ML Kit Arabic limitation (no Tesseract on RN 0.74) |
+| **3.13** | — | Complete | **Debug Arabic OCR** — `POST /api/debug/arabic-ocr` (server Tesseract `ara`); backend keyword lists synced with mobile; Arabic script demo path added for supervisor validation |
+| **3.14** | — | Complete | **On-device Arabic OCR (Android)** — integrated `@devinikhiya/react-native-tesseractocr` with lazy initialization, sequential ML Kit→Tesseract fallback, no OCR concurrency, and `ara.traineddata` assets |
 | **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint **3.12** — OCR noise reduction + accurate foreground detection; multilingual on-device pipeline (ML Kit + keyword filter + Arabizi normalization) ready for Sprint 4.
+**Current milestone:** Sprint **3.14** — on-device Arabic OCR (Android) with lazy Tesseract fallback, while preserving fast ML Kit-first capture flow.
 
 ---
 
@@ -509,22 +511,37 @@ bash run_full_pipeline.sh
 
 ---
 
-## Multilingual OCR (Sprint 3.10)
+## Multilingual OCR (Sprint 3.10 – 3.14)
 
-The on-device OCR path was extended from English-only to **English + French + Arabic + Tunisian Derja Arabizi** without sending screenshots off-device.
+The on-device OCR path now covers **English + French + Arabic + Tunisian Derja Arabizi** without sending screenshots off-device.
+
+### On-device (production child app)
 
 | Layer | File | Responsibility |
 |-------|------|----------------|
-| Primary OCR | `MobileApp/src/services/mixedScriptOcr.ts` | ML Kit `TextRecognition.recognize` (Latin script — covers FR/EN/Arabizi; no dedicated Arabic script in ML Kit v1.5.x) |
-| UI noise filter | `MobileApp/src/utils/cleanOcrText.ts` | Strips timestamps, like counts (`308K`), and social UI strings before keyword matching |
-| Script detection | `MobileApp/src/utils/normalizeArabizi.ts` | `containsArabicScript` + `containsArabicOrArabizi` (≥2 letter-adjacent transformation digits, excludes UI numbers) |
-| Arabizi normalization | `normalizeArabizi(text)` | Maps `7→ح 3→ع 5→خ 9→ق` etc. + digraphs (`ch→ش`, `kh→خ`, `gh→غ`) — applied to **cleaned** text only when actionable Arabizi is detected |
-| Tesseract fallback | — | **Not used** on RN 0.74 (WASM unreliable). Documented limitation; ML Kit + keyword filter + Arabizi normalization is the pragmatic path before Sprint 4 |
-| Multilingual keyword filter | `MobileApp/src/utils/keywordFilter.ts` | `keywordFilter(text, normalizedText?)` — runs scans on both raw and Arabizi-normalized text, merges by highest risk category. New lists: `FRENCH_HIGH_RISK_KEYWORDS`, `ARABIC_HIGH_RISK_KEYWORDS`, `DERJA_ARABIZI_HIGH_RISK` (e.g. `nik`, `9a7ba`, `cha9wa`) |
+| Primary OCR | `MobileApp/src/services/mixedScriptOcr.ts` | ML Kit `TextRecognition.recognize` (fast path, FR/EN/Arabizi) |
+| UI noise filter | `MobileApp/src/utils/cleanOcrText.ts` | Strips timestamps, like counts (`308K`), social UI strings |
+| Script detection | `MobileApp/src/utils/normalizeArabizi.ts` | `containsArabicScript` + stricter Arabizi gating (Sprint 3.12) |
+| Arabizi normalization | `normalizeArabizi(text)` | Digit/digraph mapping for Derja keyword matching |
+| Arabic fallback (Android) | `MobileApp/src/services/mobileArabicOcr.ts` | `@devinikhiya/react-native-tesseractocr` + `ara.traineddata` (lazy init, sequential fallback only when Arabic is detected) |
+| Multilingual keyword filter | `MobileApp/src/utils/keywordFilter.ts` | EN / FR / AR / Derja lists; `keywordFilter(text, normalizedText?)` |
 
-**Tests:** `MobileApp/__tests__/normalizeArabizi.test.ts`, `MobileApp/__tests__/cleanOcrText.test.ts`, and `MobileApp/__tests__/keywordFilterMultilingual.test.ts` cover French adult/violence/insults, Arabic Unicode, Derja Arabizi, UI noise exclusion (timestamps, like counts), and false-positive resistance (`Nikon camera`, polite Arabic, neutral French).
+**Android OCR flow:** ML Kit runs first on every frame. If Arabic Unicode is detected, Tesseract runs **after** ML Kit (never in parallel) and can replace the OCR text with Arabic output. This keeps non-Arabic captures fast.
 
-**Known limitations (pre–Sprint 4):** ML Kit Latin recognizer has limited Arabic script accuracy on stylised/low-res screenshots. Tesseract.js is not bundled on RN 0.74. The pipeline mitigates noise via `cleanOcrText` + stricter Arabizi gating; actual Derja keywords still match on raw Latin tokens in `keywordFilter`.
+**Platform note:** on-device Arabic Tesseract is currently enabled on **Android only**. iOS gracefully falls back to ML Kit-only OCR.
+
+### Debug only (server — demo / supervisor)
+
+| Endpoint | Stack | Purpose |
+|----------|-------|---------|
+| `POST /api/debug/classify` | nsfwjs + Tesseract `eng` | Vision + English OCR combined risk |
+| `POST /api/debug/arabic-ocr` | Tesseract `ara` + synced keyword filter | **Arabic Unicode extraction** for demo; images leave device only in this debug tool |
+
+Use **Arabic OCR Debug Tool** in `demo_dashboard.html` to upload a screenshot with Arabic text and verify `سكس` / `قحبة` trigger `category: adult`. Production monitoring still uses on-device pipeline only.
+
+**Arabic OCR accuracy:** Debug endpoint uses Arabic-only Tesseract (`ara`) with 1600px upscale and PSM block/auto. On-device Android fallback also uses Tesseract and may still produce spacing/diacritic noise on low-res social screenshots; keyword filtering remains robust against short OCR artifacts.
+
+**Tests:** Mobile — `normalizeArabizi.test.ts`, `cleanOcrText.test.ts`, `keywordFilterMultilingual.test.ts`. Backend — `arabicOcr.test.ts`, `debugPipeline.test.ts`.
 
 ---
 
@@ -559,4 +576,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 29 May 2026  
-**Status:** Sprint 3.12 complete – OCR UI noise filter + stricter Arabizi gating; Sprint 3.11 foreground detection; on-device Yahoo Open NSFW TFLite.
+**Status:** Sprint 3.14 complete – on-device Arabic OCR (Android Tesseract fallback) + Sprint 3.13 debug Arabic endpoint; Yahoo Open NSFW TFLite on device.

@@ -1,5 +1,5 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
-import { containsArabicScript } from './normalizeArabizi';
+import { containsArabicScript, normalizeArabizi } from './normalizeArabizi';
 
 export type RiskCategory =
   | 'violent'
@@ -41,12 +41,35 @@ export const ARABIC_HIGH_RISK_KEYWORDS: readonly string[] = [
   'كس اختك', 'دبر', 'شرموط',
 ];
 
-/** Tunisian Derja Arabizi (Latin + digits) — substring (lowercase) match. */
+/** Tunisian Derja (Latin/Arabizi + Arabic script) — substring match. */
 export const DERJA_ARABIZI_HIGH_RISK: readonly string[] = [
-  'nik', 'nayek', 'niki', 'nikni', 'tnayek',
-  'kos', 'kosomk', 'kosomek', 'zob', 'zob mok',
-  '9a7ba', 'qa7ba', 'qahba', 'kohba', '7chouma',
-  'cha9wa', 'sha9wa', 'cha7wa', '5ra', 'kalbi',
+  // Core sexual / insult (Latin + digit Arabizi)
+  'nik', 'nayek', 'niki', 'nikni', 'tnayek', 'mnayek', 'mnaykin', 'mnaykyn', 'mnaikin',
+  'mnayeq', 'niklek', 'maniklek', 'mounek', 'manyouk', 'mounekin', 'mounekyn',
+  'nek', 'ynik', 'inik', 'neketni', 'nektouna', 'nektoulha', 'neketekni',
+  'kos', 'kosomk', 'kosomtek', 'kosomek',
+  'zob', 'zob mok', 'zeb', 'zebi', 'zebek', 'zebou', 'zebna', 'zeby', 'zboubna',
+  '9a7ba', 'qa7ba', 'qahba', 'kohba', '7chouma', 'cha9wa', 'sha9wa', 'cha7wa',
+  '5ra', 'kalbi', '3oss', 'miboun', 'tahan', 'ta7an',
+  'mankoun', 'man9oub', 'sorm', 'sormek', 'nouna', 'sorm ommek', 'sorm omek', 'nami',
+  'te7chi fih', 'tehchi fih', 'te7chi', 'tehchi', 'yehchi', 'ye7chi',
+  'weben', 'maklout', 'mal9out', 'asba', '3asba', 'jaabek', 'ja3bek', 'ja3b',
+  'bazoula', 'bzezel', 'bazla', 'ras zebi', 'karazet', 'karazetni', 'karrez', 'karez',
+  'krarez', 'krarzi', 'korza', 'mestakrez', 'khrit fih',
+  // Hach / shame family
+  'hachweji', '7achweji', 'yehchih', 'ye7chih', 'hachih', '7achih',
+  'hachihoulou', '7achihoulou', 'hachihouli', '7achihouli',
+  'hachihoulek', '7achihoulek', 'hchithelek', '7chithelek',
+  'hchehelna', '7chehelna', 'metehchelek', 'mete7chelek',
+  'tehchelek', 'te7chelek',
+  // Research report additions
+  'nshammshi', 'nchammshi', 'nšammši', 'batruna', 'batrouna',
+  'lahhas', 'la7has', 'l7as', 'mkhannas', 'm5annis', 'khannes', 'mkhannith',
+  '3abd', '3abed', '3abid', 'na3l', 'naala', 'zatla', 'chrab',
+'9hab',  // Arabic script (Tesseract / native Arabic OCR)
+  'قحبة', 'ولد القحبة', 'لحاس', 'زب', 'نيك', 'مخنث', 'ميبون', 'نشّمشي', 'نعّل',
+  'الزاب', 'الزوبة', 'الزبي', 'المنيك', 'المنيوك', 'الزبانة', 'الشرموطة',
+  'القحاب', 'الخو', 'اللوطي', 'اللواط', 'السحاق', 'البعبوص',
 ];
 
 export const VIOLENT_TEXT_KEYWORDS: readonly string[] = [
@@ -185,12 +208,19 @@ export function keywordFilter(
   text: string,
   normalizedText?: string,
 ): KeywordFilterResult {
-  const primary = scanText(text);
-  if (!normalizedText || normalizedText === text) {
-    return primary;
+  let merged = scanText(text);
+  const autoNormalized = normalizeArabizi(text);
+  if (autoNormalized && autoNormalized !== text.toLowerCase()) {
+    merged = mergeResults(merged, scanText(autoNormalized));
   }
-  const secondary = scanText(normalizedText);
-  return mergeResults(primary, secondary);
+  if (
+    normalizedText &&
+    normalizedText !== text &&
+    normalizedText !== autoNormalized
+  ) {
+    merged = mergeResults(merged, scanText(normalizedText));
+  }
+  return merged;
 }
 
 /** Backend parity alias (mirrors `backend/src/utils/keywordFilter.ts#analyzeText`). */
