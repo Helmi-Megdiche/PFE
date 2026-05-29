@@ -1,10 +1,12 @@
 import {useEffect, useRef, useCallback} from 'react';
 import {AppState, type AppStateStatus} from 'react-native';
+import {tokenStorage} from '../auth/tokenStorage';
+import {ApiAuthError} from '../services/apiClient';
 import {
   postUsageSessions,
   type UsageSessionPayload,
 } from '../services/usageApi';
-import {scError, scLog} from '../utils/screenCaptureLogger';
+import {scError, scLog, scWarn} from '../utils/screenCaptureLogger';
 
 const APP_PACKAGE = 'com.mobileapp';
 const FLUSH_INTERVAL_MS = 60_000;
@@ -22,12 +24,32 @@ export function useForegroundTracker(enabled: boolean): void {
     if (batchRef.current.length === 0) {
       return;
     }
+
+    const token = await tokenStorage.getToken();
+    if (!token?.trim()) {
+      scWarn('[Usage] Skipping batch — no JWT (start backend or log in)');
+      return;
+    }
+
     const payload = [...batchRef.current];
     batchRef.current = [];
     try {
       const result = await postUsageSessions(payload);
       scLog(`[Usage] Sent ${result.count} session(s) to backend`);
     } catch (error) {
+      if (error instanceof ApiAuthError) {
+        scWarn('[Usage] Auth failed — batch kept for retry', {
+          message: error.message,
+        });
+        batchRef.current = [...payload, ...batchRef.current];
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Network request failed')) {
+        scWarn('[Usage] Backend unreachable — batch kept for retry', { message });
+        batchRef.current = [...payload, ...batchRef.current];
+        return;
+      }
       scError('[Usage] Failed to send batch', error);
       batchRef.current = [...payload, ...batchRef.current];
     }

@@ -2,6 +2,8 @@ import {
   containsArabicOrArabizi,
   containsArabicScript,
   containsArabiziPattern,
+  containsStrongArabizi,
+  countArabiziSignals,
   normalizeArabizi,
 } from '../src/utils/normalizeArabizi';
 
@@ -38,6 +40,25 @@ describe('containsArabicOrArabizi', () => {
 
   it('false for plain English', () => {
     expect(containsArabicOrArabizi('Hello world, 2026')).toBe(false);
+  });
+});
+
+describe('containsStrongArabizi', () => {
+  it('true for Arabic script', () => {
+    expect(containsStrongArabizi('سلام')).toBe(true);
+  });
+
+  it('true when at least two digit-letter Arabizi tokens present', () => {
+    expect(containsStrongArabizi('9a7ba w 3lik')).toBe(true);
+  });
+
+  it('false for single time-like token (3:51)', () => {
+    expect(containsStrongArabizi('3:51 instagram feed')).toBe(false);
+  });
+
+  it('false for a single like-count token (308K)', () => {
+    expect(countArabiziSignals('308K likes')).toBe(1);
+    expect(containsStrongArabizi('308K likes')).toBe(false);
   });
 });
 

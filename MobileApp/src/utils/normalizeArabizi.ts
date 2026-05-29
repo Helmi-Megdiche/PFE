@@ -1,6 +1,6 @@
 /**
  * Arabizi (Tunisian Derja Latin-script with digits) normalization helpers.
- * Keep transforms conservative to avoid mangling English/French.
+ * Arabic replacement chars use \\u escapes so Hermes/Metro always parse this file.
  */
 
 /** Arabic Unicode block (basic + extended A/B + presentation forms). */
@@ -12,24 +12,24 @@ const ARABIZI_PATTERN_RE = /[a-z][2356789]|[2356789][a-z]/i;
 
 /** Digit-to-Arabic-letter mapping used in Maghrebi Arabizi. */
 const DIGIT_MAP: ReadonlyArray<readonly [RegExp, string]> = [
-  [/7/g, 'ح'],
-  [/3/g, 'ع'],
-  [/2/g, 'ء'],
-  [/5/g, 'خ'],
-  [/6/g, 'ط'],
-  [/8/g, 'ق'],
-  [/9/g, 'ق'],
+  [/7/g, '\u062D'],
+  [/3/g, '\u0639'],
+  [/2/g, '\u0621'],
+  [/5/g, '\u062E'],
+  [/6/g, '\u0637'],
+  [/8/g, '\u0642'],
+  [/9/g, '\u0642'],
 ];
 
 /** Latin digraphs commonly used in Arabizi. */
 const DIGRAPH_MAP: ReadonlyArray<readonly [RegExp, string]> = [
-  [/ch/gi, 'ش'],
-  [/kh/gi, 'خ'],
-  [/gh/gi, 'غ'],
-  [/th/gi, 'ث'],
-  [/dh/gi, 'ذ'],
-  [/sh/gi, 'ش'],
-  [/ou/gi, 'و'],
+  [/ch/gi, '\u0634'],
+  [/kh/gi, '\u062E'],
+  [/gh/gi, '\u063A'],
+  [/th/gi, '\u062B'],
+  [/dh/gi, '\u0630'],
+  [/sh/gi, '\u0634'],
+  [/ou/gi, '\u0648'],
 ];
 
 export function containsArabicScript(text: string): boolean {
@@ -47,14 +47,26 @@ export function containsArabicOrArabizi(text: string): boolean {
   return containsArabiziPattern(text);
 }
 
+/** Count digit-letter Arabizi tokens (excludes plain numbers like times/counts). */
+export function countArabiziSignals(text: string): number {
+  if (!text) return 0;
+  const re = /[a-z][2356789]|[2356789][a-z]/gi;
+  const matches = text.match(re);
+  return matches?.length ?? 0;
+}
+
+/**
+ * Stronger Arabizi gate: Arabic script OR at least two digit-letter tokens.
+ * Reduces false positives from status-bar times and like counts (e.g. "3:51", "308K").
+ */
+export function containsStrongArabizi(text: string): boolean {
+  if (!text) return false;
+  if (containsArabicScript(text)) return true;
+  return countArabiziSignals(text) >= 2;
+}
+
 /**
  * Conservative Arabizi → quasi-Arabic transliteration for keyword matching.
- * - Lowercases the input.
- * - Maps digits {2,3,5,6,7,8,9} to closest Arabic letters.
- * - Maps common digraphs (ch, kh, gh, th, dh, sh, ou).
- *
- * The output is **not** valid Arabic; it just produces tokens that can be
- * matched against keyword lists (e.g. `9a7ba` → `قاحبا` partial overlap with `قحبة`).
  */
 export function normalizeArabizi(text: string): string {
   if (!text) return text;

@@ -1,26 +1,47 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { tokenStorage } from './tokenStorage';
+
+const DEV_TOKEN_RETRY_MS = 15_000;
 
 /**
  * Fetches GET /api/dev/child-token in development when no JWT is stored.
  */
-export function useDevChildToken(apiBaseUrl: string): { ready: boolean; error: string | null } {
+export function useDevChildToken(apiBaseUrl: string): {
+  ready: boolean;
+  error: string | null;
+  hasToken: boolean;
+  retry: () => void;
+} {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasToken, setHasToken] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = useCallback(() => {
+    setAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     if (!__DEV__) {
-      setReady(true);
+      void tokenStorage.getToken().then((token) => {
+        setHasToken(!!token?.trim());
+        setReady(true);
+      });
       return;
     }
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    (async () => {
+    const loadDevToken = async (): Promise<void> => {
       try {
         const existing = await tokenStorage.getToken();
-        if (existing) {
-          if (!cancelled) setReady(true);
+        if (existing?.trim()) {
+          if (!cancelled) {
+            setHasToken(true);
+            setError(null);
+            setReady(true);
+          }
           return;
         }
 
@@ -31,19 +52,29 @@ export function useDevChildToken(apiBaseUrl: string): { ready: boolean; error: s
 
         const data = (await response.json()) as { token: string };
         await tokenStorage.setToken(data.token);
-        if (!cancelled) setReady(true);
-      } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setHasToken(true);
+          setError(null);
           setReady(true);
         }
+      } catch (err) {
+        if (cancelled) return;
+        setHasToken(false);
+        setError(err instanceof Error ? err.message : String(err));
+        setReady(true);
+        retryTimer = setTimeout(() => {
+          if (!cancelled) setAttempt((n) => n + 1);
+        }, DEV_TOKEN_RETRY_MS);
       }
-    })();
+    };
+
+    void loadDevToken();
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, attempt]);
 
-  return { ready, error };
+  return { ready, error, hasToken, retry };
 }

@@ -44,6 +44,13 @@ const FOLLOW_UP_DELAY_MS = 5_000;
 const FOLLOW_UP_MIN_GAP_MS = 2_000;
 const DEFAULT_MAX_TEXT = 500;
 
+/** Never cache or report System UI — it sticks after the MediaProjection consent dialog. */
+const SYSTEM_UI_PACKAGE = 'com.android.systemui';
+
+function isUsableForegroundPackage(pkg: string | null | undefined): pkg is string {
+  return !!pkg && pkg !== 'unknown' && pkg !== SYSTEM_UI_PACKAGE;
+}
+
 interface UseScreenshotCaptureOptions extends ScreenshotCaptureConfig {
   onCycleComplete?: (result: CaptureCycleResult) => void;
 }
@@ -245,29 +252,33 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
             ? await resolveForegroundApp()
             : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
-        const cachedPackage =
-          lastAppPackageRef.current && lastAppPackageRef.current !== 'unknown'
-            ? lastAppPackageRef.current
-            : null;
+        const fgPackage = isUsableForegroundPackage(fg.packageName) ? fg.packageName : null;
+        const eventPackage = isUsableForegroundPackage(appPackage) ? appPackage : null;
+        const cachedPackage = isUsableForegroundPackage(lastAppPackageRef.current)
+          ? lastAppPackageRef.current
+          : null;
 
-        const resolvedPackage =
-          fg.packageName && fg.packageName !== 'unknown'
-            ? fg.packageName
-            : appPackage && appPackage !== 'unknown'
-              ? appPackage
-              : cachedPackage ?? 'unknown';
+        const resolvedPackage = fgPackage ?? eventPackage ?? cachedPackage ?? 'unknown';
 
         const resolvedLabel =
-          fg.appLabel && fg.appLabel !== 'unknown' && fg.packageName === resolvedPackage
+          fgPackage &&
+          fg.appLabel &&
+          fg.appLabel !== 'unknown' &&
+          fgPackage === resolvedPackage
             ? fg.appLabel
             : resolvedPackage;
+
+        if (fgPackage) {
+          lastAppPackageRef.current = fgPackage;
+        }
 
         scLog('Foreground app', {
           package: resolvedPackage,
           label: resolvedLabel,
-          source:
-            fg.packageName === resolvedPackage
-              ? fg.source
+          source: fgPackage
+            ? fg.source
+            : eventPackage === resolvedPackage
+              ? 'capture_event'
               : cachedPackage === resolvedPackage
                 ? 'cached_poll'
                 : fg.source,
@@ -288,8 +299,9 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           chars: preview.length,
           preview: preview.slice(0, 80),
           source: ocrMixed.source,
-          arabic: ocrMixed.hasArabicScript,
-          arabizi: ocrMixed.hasArabiziPattern,
+          ...(__DEV__
+            ? { arabic: ocrMixed.hasArabicScript, arabizi: ocrMixed.hasArabiziPattern }
+            : {}),
         });
 
         const devOverlayOcr = __DEV__ && isDevOverlayOcrText(fullText);
@@ -446,6 +458,29 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     return ok;
   }, []);
 
+  const refreshForegroundCache = useCallback(async (): Promise<void> => {
+    lastAppPackageRef.current = null;
+    const deadline = Date.now() + 2_000;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    while (Date.now() < deadline) {
+      const fg = await resolveForegroundApp();
+      if (isUsableForegroundPackage(fg.packageName)) {
+        lastAppPackageRef.current = fg.packageName;
+        setLastForegroundApp(fg.packageName);
+        scLog('Foreground cache refreshed', {
+          package: fg.packageName,
+          label: fg.appLabel,
+        });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    scWarn('Foreground cache refresh timed out — still on System UI or unknown');
+  }, []);
+
   const startSmartCaptureTimers = useCallback(() => {
     clearAdaptiveTimers();
 
@@ -453,9 +488,12 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       void (async () => {
         const fg = await resolveForegroundApp();
         const pkg = fg.packageName;
+        if (!isUsableForegroundPackage(pkg)) {
+          return;
+        }
+
         if (
           lastAppPackageRef.current !== null &&
-          pkg !== 'unknown' &&
           pkg !== lastAppPackageRef.current
         ) {
           scLog('App switch detected', {
@@ -466,10 +504,9 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           await tryCaptureNow('app_switch');
           scheduleFollowUpCapture(FOLLOW_UP_DELAY_MS);
         }
-        if (pkg !== 'unknown') {
-          lastAppPackageRef.current = pkg;
-          setLastForegroundApp(pkg);
-        }
+
+        lastAppPackageRef.current = pkg;
+        setLastForegroundApp(pkg);
       })();
     }, APP_POLL_MS);
 
@@ -513,9 +550,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       lastCaptureMsRef.current = 0;
       lastAppPackageRef.current = null;
 
-      const initialFg = await resolveForegroundApp();
-      lastAppPackageRef.current = initialFg.packageName;
-      setLastForegroundApp(initialFg.packageName);
+      void refreshForegroundCache();
 
       setPermissionGranted(true);
       setIsMonitoring(true);
@@ -532,7 +567,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     } finally {
       isStartingRef.current = false;
     }
-  }, [intervalMs, refreshUsageAccess, requestPermission]);
+  }, [intervalMs, refreshUsageAccess, requestPermission, refreshForegroundCache]);
 
   const stopMonitoring = useCallback(async (): Promise<void> => {
     if (Platform.OS !== 'android') {

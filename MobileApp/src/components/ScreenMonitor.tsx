@@ -10,7 +10,9 @@ import {
   View,
 } from 'react-native';
 import { useScreenshotCapture } from '../hooks/useScreenshotCapture';
+import getScreenCaptureModule from '../native/ScreenCapture';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
+import { getMonitoringIntent, setMonitoringIntent } from '../utils/monitoringIntent';
 import type { CaptureCycleResult } from '../types/screenMonitor';
 
 export interface ScreenMonitorProps {
@@ -64,6 +66,37 @@ export function ScreenMonitor({
     }
   }, [refreshUsageAccess]);
 
+  /** Resume monitoring after MediaProjection consent reloads the React Activity. */
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const wantsMonitoring = await getMonitoringIntent();
+      if (!wantsMonitoring || cancelled) {
+        return;
+      }
+
+      const nativeGranted = await getScreenCaptureModule().isPermissionGranted();
+      if (!nativeGranted || cancelled) {
+        return;
+      }
+
+      scLog('Auto-resuming monitoring after permission grant / app reload');
+      const started = await startMonitoring();
+      if (!cancelled) {
+        setEnabled(started);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [startMonitoring]);
+
   const handleToggle = useCallback(
     async (value: boolean) => {
       if (isBusy) {
@@ -73,6 +106,7 @@ export function ScreenMonitor({
       scLog('Toggle', { value, permissionGranted, usageAccessGranted });
       setIsBusy(true);
       try {
+        await setMonitoringIntent(value);
         if (value) {
           const usageOk = await refreshUsageAccess();
           if (!usageOk) {
@@ -88,6 +122,7 @@ export function ScreenMonitor({
           }
         } else {
           await stopMonitoring();
+          await setMonitoringIntent(false);
           scLog('Toggle OFF done');
           setEnabled(false);
         }

@@ -1,29 +1,22 @@
 /**
- * Hybrid OCR — ML Kit Text Recognition (primary) with Arabizi normalization,
- * and an optional Tesseract fallback for Arabic / mixed-script content.
+ * Hybrid OCR — ML Kit Text Recognition (primary) with Arabizi normalization.
  *
- * Tesseract.js does not run cleanly inside React Native 0.74 (WASM + Web Workers),
- * so the import is wrapped in a graceful `require()`: if the dependency is
- * missing or fails to load, we fall back to ML Kit + Arabizi normalization only.
- *
- * The on-device path still benefits from the new French / Arabic / Derja
- * keyword lists in `keywordFilter.ts`, even without Tesseract.
+ * Tesseract.js is intentionally not loaded here (RN 0.74 + WASM is unreliable).
+ * When Arabic script or strong Arabizi is detected, ML Kit text is passed through
+ * normalizeArabizi so keywordFilter can match Derja terms written with Latin
+ * letters and digits.
  */
 
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import {
-  containsArabicOrArabizi,
   containsArabicScript,
   containsArabiziPattern,
+  containsStrongArabizi,
   normalizeArabizi,
 } from '../utils/normalizeArabizi';
-import { scLog, scWarn } from '../utils/screenCaptureLogger';
+import { scLog } from '../utils/screenCaptureLogger';
 
-export type MixedOcrSource =
-  | 'mlkit'
-  | 'mlkit+normalized'
-  | 'tesseract'
-  | 'tesseract+normalized';
+export type MixedOcrSource = 'mlkit' | 'mlkit+normalized';
 
 export interface MixedOcrResult {
   text: string;
@@ -33,62 +26,53 @@ export interface MixedOcrResult {
   hasArabiziPattern: boolean;
 }
 
-let tesseractWorker: unknown | null = null;
-let tesseractDisabled = false;
-
-async function getTesseractWorker(): Promise<unknown | null> {
-  if (tesseractDisabled) return null;
-  if (tesseractWorker) return tesseractWorker;
-
+/** Runtime guard in case Metro serves a stale/partial module graph. */
+function detectArabicScript(text: string): boolean {
   try {
-    // Optional dependency: not installed by default. We require lazily and
-    // any error disables Tesseract for the rest of the session.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
-    const Tesseract = require('tesseract.js');
-    if (!Tesseract?.createWorker) {
-      tesseractDisabled = true;
-      return null;
-    }
-    const worker = await Tesseract.createWorker('ara+fra+eng', undefined, {
-      logger: () => undefined,
-    });
-    tesseractWorker = worker;
-    scLog('[OCR] Tesseract worker initialised (ara+fra+eng)');
-    return worker;
-  } catch (err) {
-    tesseractDisabled = true;
-    scWarn('[OCR] Tesseract not available — using ML Kit + Arabizi normalization', err);
-    return null;
+    return containsArabicScript(text);
+  } catch {
+    return /[\u0600-\u06FF]/.test(text);
   }
 }
 
-async function runTesseract(imageUri: string): Promise<string | null> {
-  const worker = (await getTesseractWorker()) as
-    | { recognize: (uri: string) => Promise<{ data: { text?: string } }> }
-    | null;
-  if (!worker) return null;
+function detectArabiziPattern(text: string): boolean {
   try {
-    const { data } = await worker.recognize(imageUri);
-    return (data?.text ?? '').trim();
-  } catch (err) {
-    scWarn('[OCR] Tesseract recognize failed', err);
-    return null;
+    return containsArabiziPattern(text);
+  } catch {
+    return /[a-z][2356789]|[2356789][a-z]/i.test(text);
+  }
+}
+
+function needsArabiziNormalization(text: string): boolean {
+  try {
+    return containsStrongArabizi(text);
+  } catch {
+    return detectArabicScript(text) || detectArabiziPattern(text);
+  }
+}
+
+function normalizeText(text: string): string {
+  try {
+    return normalizeArabizi(text);
+  } catch {
+    return text.toLowerCase();
   }
 }
 
 /**
- * Extract text from a screenshot using ML Kit, with optional Tesseract fallback
- * when Arabic script or Arabizi patterns are detected. Always returns a
- * `normalizedText` when Arabizi patterns are present so the keyword filter can
- * scan a quasi-Arabic form of the text.
+ * Extract text from a screenshot using ML Kit. When Arabic script or strong Arabizi
+ * patterns are detected, also returns normalizedText for keyword matching.
  */
 export async function extractTextMixed(imageUri: string): Promise<MixedOcrResult> {
   const mlResult = await TextRecognition.recognize(imageUri);
   const mlText = (mlResult?.text ?? '').trim();
-  const hasArabicScript = containsArabicScript(mlText);
-  const hasArabiziPattern = containsArabiziPattern(mlText);
+  const hasArabicScript = detectArabicScript(mlText);
+  const hasArabiziPattern = detectArabiziPattern(mlText);
 
-  if (!containsArabicOrArabizi(mlText)) {
+  if (!needsArabiziNormalization(mlText)) {
+    if (__DEV__) {
+      scLog('[OCR] ML Kit only', { chars: mlText.length });
+    }
     return {
       text: mlText,
       source: 'mlkit',
@@ -97,24 +81,20 @@ export async function extractTextMixed(imageUri: string): Promise<MixedOcrResult
     };
   }
 
-  const tessText = await runTesseract(imageUri);
-  if (tessText && tessText.length > 0) {
-    const tessNormalized = containsArabiziPattern(tessText)
-      ? normalizeArabizi(tessText)
-      : undefined;
-    return {
-      text: tessText,
-      source: tessNormalized ? 'tesseract+normalized' : 'tesseract',
-      normalizedText: tessNormalized,
-      hasArabicScript: containsArabicScript(tessText),
-      hasArabiziPattern: containsArabiziPattern(tessText),
-    };
+  const normalizedText = normalizeText(mlText);
+  if (__DEV__) {
+    scLog('[OCR] ML Kit + Arabizi normalization', {
+      chars: mlText.length,
+      arabic: hasArabicScript,
+      arabizi: hasArabiziPattern,
+      normalizedChanged: normalizedText !== mlText.toLowerCase(),
+    });
   }
 
   return {
     text: mlText,
     source: 'mlkit+normalized',
-    normalizedText: normalizeArabizi(mlText),
+    normalizedText,
     hasArabicScript,
     hasArabiziPattern,
   };

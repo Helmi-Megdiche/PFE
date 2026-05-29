@@ -13,7 +13,7 @@ const API_BASE_URL = getApiBaseUrl();
 
 function App(): React.JSX.Element {
   const [consentGranted] = useState(true);
-  const {ready, error: tokenError} = useDevChildToken(API_BASE_URL);
+  const {ready, error: tokenError, hasToken, retry} = useDevChildToken(API_BASE_URL);
 
   useEffect(() => {
     preloadImageClassifier();
@@ -36,12 +36,17 @@ function App(): React.JSX.Element {
         <StatusBar barStyle="dark-content" />
         {tokenError ? (
           <Text style={styles.error}>
-            JWT error: {tokenError}. Start backend on port 3000.
+            JWT error: {tokenError}. Start backend on port 3000, then tap retry below.
+          </Text>
+        ) : null}
+        {!hasToken && __DEV__ ? (
+          <Text style={styles.hint} onPress={() => retry()}>
+            No dev JWT yet — tap to retry token fetch
           </Text>
         ) : null}
         <ScreenMonitor consentGranted={consentGranted} intervalMs={60000} />
         {__DEV__ ? <NsfwDebugPanel /> : null}
-        <UsageTracker enabled={consentGranted} />
+        <UsageTracker enabled={consentGranted && hasToken} />
       </SafeAreaView>
     </AppApiBootstrap>
   );
