@@ -30,6 +30,7 @@ import {
   hasUsageAccess,
   openUsageAccessSettings,
   resolveForegroundApp,
+  resolveForegroundAppWithRetry,
 } from '../native/ForegroundApp';
 import type {
   CaptureCycleResult,
@@ -44,11 +45,20 @@ const FOLLOW_UP_DELAY_MS = 5_000;
 const FOLLOW_UP_MIN_GAP_MS = 2_000;
 const DEFAULT_MAX_TEXT = 500;
 
-/** Never cache or report System UI — it sticks after the MediaProjection consent dialog. */
+/** Never cache or report System UI / launchers — they stick after consent or home. */
 const SYSTEM_UI_PACKAGE = 'com.android.systemui';
 
+/** Max age for cached foreground package when live lookup fails at capture time. */
+const FOREGROUND_CACHE_MAX_AGE_MS = 15_000;
+
 function isUsableForegroundPackage(pkg: string | null | undefined): pkg is string {
-  return !!pkg && pkg !== 'unknown' && pkg !== SYSTEM_UI_PACKAGE;
+  if (!pkg || pkg === 'unknown' || pkg === SYSTEM_UI_PACKAGE) {
+    return false;
+  }
+  if (pkg.includes('launcher')) {
+    return false;
+  }
+  return true;
 }
 
 interface UseScreenshotCaptureOptions extends ScreenshotCaptureConfig {
@@ -94,6 +104,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const isMonitoringRef = useRef(false);
   const lastCaptureMsRef = useRef(0);
   const lastAppPackageRef = useRef<string | null>(null);
+  const lastAppPackageUpdatedAtRef = useRef(0);
 
   const riskHistoryRef = useRef<number[]>([]);
   const dynamicIntervalMsRef = useRef(RISK_INTERVAL_LOW_MS);
@@ -249,14 +260,28 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       try {
         const fg =
           Platform.OS === 'android'
-            ? await resolveForegroundApp()
+            ? await resolveForegroundAppWithRetry(3, 200)
             : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
         const fgPackage = isUsableForegroundPackage(fg.packageName) ? fg.packageName : null;
         const eventPackage = isUsableForegroundPackage(appPackage) ? appPackage : null;
-        const cachedPackage = isUsableForegroundPackage(lastAppPackageRef.current)
-          ? lastAppPackageRef.current
-          : null;
+        const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
+        const cachedPackage =
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS
+            ? lastAppPackageRef.current
+            : null;
+
+        if (
+          !fgPackage &&
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          cacheAgeMs > FOREGROUND_CACHE_MAX_AGE_MS
+        ) {
+          scWarn('Foreground cache stale — live lookup failed; not reusing old app', {
+            cached: lastAppPackageRef.current,
+            cacheAgeMs,
+          });
+        }
 
         const resolvedPackage = fgPackage ?? eventPackage ?? cachedPackage ?? 'unknown';
 
@@ -270,6 +295,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         if (fgPackage) {
           lastAppPackageRef.current = fgPackage;
+          lastAppPackageUpdatedAtRef.current = Date.now();
         }
 
         scLog('Foreground app', {
@@ -468,6 +494,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       const fg = await resolveForegroundApp();
       if (isUsableForegroundPackage(fg.packageName)) {
         lastAppPackageRef.current = fg.packageName;
+        lastAppPackageUpdatedAtRef.current = Date.now();
         setLastForegroundApp(fg.packageName);
         scLog('Foreground cache refreshed', {
           package: fg.packageName,
@@ -506,6 +533,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         }
 
         lastAppPackageRef.current = pkg;
+        lastAppPackageUpdatedAtRef.current = Date.now();
         setLastForegroundApp(pkg);
       })();
     }, APP_POLL_MS);

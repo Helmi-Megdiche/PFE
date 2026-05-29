@@ -117,7 +117,7 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
-Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. If Usage Stats misses the app at capture time, the last package from the 1s poll is used (`cached_poll`) instead of `unknown`.
+Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **15s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.
 
 ---
 
@@ -440,10 +440,11 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.8** | — | Complete | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite`. See [`training/README_FINETUNE.md`](training/README_FINETUNE.md) |
 | **3.9** | — | Complete | **On-device NSFW TFLite** — Yahoo Open NSFW `nsfw.tflite` via native `NsfwTflite` module (RN 0.74–compatible), replaces ML Kit heuristic proxy for adult score |
 | **3.10** | — | Complete | **Multilingual OCR (FR / AR / Derja)** — French + Arabic + Tunisian Derja Arabizi keyword lists, `normalizeArabizi.ts` (digit-letter → quasi-Arabic), `mixedScriptOcr.ts` (ML Kit primary + graceful Tesseract `ara+fra+eng` fallback), normalized-text channel in `keywordFilter` |
+| **3.11** | — | Complete | **Foreground app accuracy** — UsageEvents window 15s→120s, UsageStats recency filter (5s), capture-time 3× retry (200ms), 15s cache TTL, skip System UI / launcher; fixes Instagram sticking when switching to Messenger |
 | **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
-**Current milestone:** Sprint **3.10** — multilingual on-device OCR (English + French + Arabic + Tunisian Derja Arabizi) feeding the TFLite + ML Kit + keyword risk fusion.
+**Current milestone:** Sprint **3.11** — accurate foreground app detection (Messenger vs Instagram) plus multilingual on-device OCR feeding the TFLite + ML Kit + keyword risk fusion.
 
 ---
 
@@ -563,5 +564,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 20 May 2026  
-**Status:** Sprint 3.9 complete – on-device Yahoo Open NSFW TFLite; Sprint 3.8 training pipeline in `training/`.
+**Last updated:** 29 May 2026  
+**Status:** Sprint 3.11 complete – foreground app detection (UsageStats window + cache TTL); Sprint 3.10 multilingual OCR; on-device Yahoo Open NSFW TFLite.

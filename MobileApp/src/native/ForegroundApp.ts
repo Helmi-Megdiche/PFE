@@ -84,6 +84,30 @@ export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
   return { packageName: 'unknown', appLabel: 'unknown', source: 'none' };
 }
 
+/** Retry briefly — UsageStats can return null during MediaProjection capture. */
+export async function resolveForegroundAppWithRetry(
+  attempts = 3,
+  delayMs = 200,
+): Promise<ForegroundAppInfo> {
+  let last: ForegroundAppInfo = {
+    packageName: 'unknown',
+    appLabel: 'unknown',
+    source: 'none',
+  };
+
+  for (let i = 0; i < attempts; i++) {
+    last = await resolveForegroundApp();
+    if (last.packageName !== 'unknown') {
+      return last;
+    }
+    if (i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return last;
+}
+
 /** @deprecated Prefer resolveForegroundApp() — does not throw when permission missing. */
 export async function getCurrentForegroundApp(): Promise<ForegroundAppInfo | null> {
   const mod = getModule();

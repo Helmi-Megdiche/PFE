@@ -32,6 +32,11 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
     private static final String TAG = "ForegroundAppModule";
     public static final String NAME = "ForegroundApp";
 
+    /** UsageEvents: look back far enough to survive 60s capture intervals. */
+    private static final long USAGE_EVENTS_WINDOW_MS = 120_000L;
+    /** queryUsageStats fallback: ignore apps not used in the last few seconds. */
+    private static final long USAGE_STATS_RECENCY_MS = 5_000L;
+
     public ForegroundAppModule(ReactApplicationContext reactContext) {
         super(reactContext);
     }
@@ -111,7 +116,7 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
         }
 
         long end = System.currentTimeMillis();
-        long start = end - 15_000;
+        long start = end - USAGE_EVENTS_WINDOW_MS;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             WritableMap fromEvents = resolveFromUsageEvents(usm, start, end, ownPackage);
@@ -132,10 +137,18 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
 
         SortedMap<Long, UsageStats> sorted = new TreeMap<>();
         for (UsageStats usage : stats) {
-            if (usage.getLastTimeUsed() > 0
-                    && !ownPackage.equals(usage.getPackageName())) {
-                sorted.put(usage.getLastTimeUsed(), usage);
+            long lastUsed = usage.getLastTimeUsed();
+            if (lastUsed <= 0 || ownPackage.equals(usage.getPackageName())) {
+                continue;
             }
+            if (shouldSkipForegroundPackage(usage.getPackageName())) {
+                continue;
+            }
+            // Ignore stale entries — Instagram background sync can beat Messenger otherwise.
+            if (end - lastUsed > USAGE_STATS_RECENCY_MS) {
+                continue;
+            }
+            sorted.put(lastUsed, usage);
         }
 
         if (sorted.isEmpty()) {
@@ -167,7 +180,10 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
             if (type == UsageEvents.Event.MOVE_TO_FOREGROUND
                     || type == UsageEvents.Event.ACTIVITY_RESUMED) {
                 String pkg = event.getPackageName();
-                if (pkg != null && !ownPackage.equals(pkg) && event.getTimeStamp() >= lastTime) {
+                if (pkg == null || ownPackage.equals(pkg) || shouldSkipForegroundPackage(pkg)) {
+                    continue;
+                }
+                if (event.getTimeStamp() >= lastTime) {
                     lastTime = event.getTimeStamp();
                     lastPackage = pkg;
                 }
@@ -202,6 +218,9 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
             if (packageName == null || ownPackage.equals(packageName)) {
                 continue;
             }
+            if (shouldSkipForegroundPackage(packageName)) {
+                continue;
+            }
             if (packageName.contains(":")) {
                 packageName = packageName.split(":")[0];
             }
@@ -220,6 +239,19 @@ public class ForegroundAppModule extends ReactContextBaseJavaModule {
         map.putString("appLabel", resolveAppLabel(packageName));
         map.putDouble("lastTimeUsed", lastTimeUsed);
         return map;
+    }
+
+    private boolean shouldSkipForegroundPackage(String packageName) {
+        if (packageName == null) {
+            return true;
+        }
+        if ("com.android.systemui".equals(packageName)) {
+            return true;
+        }
+        if (packageName.contains("launcher")) {
+            return true;
+        }
+        return false;
     }
 
     private boolean hasUsageStatsPermission() {
