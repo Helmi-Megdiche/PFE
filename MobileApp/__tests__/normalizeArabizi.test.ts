@@ -4,6 +4,8 @@ import {
   containsArabiziPattern,
   containsStrongArabizi,
   countArabiziSignals,
+  countTransformationDigits,
+  isLikelyUINumber,
   normalizeArabizi,
 } from '../src/utils/normalizeArabizi';
 
@@ -32,14 +34,56 @@ describe('containsArabiziPattern', () => {
   });
 });
 
+describe('isLikelyUINumber', () => {
+  it('flags timestamps', () => {
+    expect(isLikelyUINumber('3:51')).toBe(true);
+    expect(isLikelyUINumber('4:18 PM')).toBe(true);
+  });
+
+  it('flags like/view counts', () => {
+    expect(isLikelyUINumber('308K')).toBe(true);
+    expect(isLikelyUINumber('23.5K')).toBe(true);
+    expect(isLikelyUINumber('1.2M')).toBe(true);
+  });
+
+  it('flags long pure numeric strings', () => {
+    expect(isLikelyUINumber('1010108')).toBe(true);
+  });
+
+  it('does not flag mixed social feed text', () => {
+    expect(isLikelyUINumber('4:18 messenger 9ssin')).toBe(false);
+    expect(isLikelyUINumber('9a7ba')).toBe(false);
+  });
+});
+
+describe('countTransformationDigits', () => {
+  it('counts letter-adjacent transformation digits only', () => {
+    expect(countTransformationDigits('9a7ba')).toBe(2);
+    expect(countTransformationDigits('2026')).toBe(0);
+    expect(countTransformationDigits('3:51')).toBe(0);
+  });
+});
+
 describe('containsArabicOrArabizi', () => {
-  it('true for either Arabic script or Arabizi pattern', () => {
+  it('true for Arabic script', () => {
     expect(containsArabicOrArabizi('سلام عليكم')).toBe(true);
-    expect(containsArabicOrArabizi('3aslema')).toBe(true);
+  });
+
+  it('true for multi-signal Derja (9a7ba w 3lik)', () => {
+    expect(containsArabicOrArabizi('9a7ba w 3lik')).toBe(true);
+  });
+
+  it('false for single-token weak Arabizi (3aslema)', () => {
+    expect(containsArabicOrArabizi('3aslema')).toBe(false);
   });
 
   it('false for plain English', () => {
     expect(containsArabicOrArabizi('Hello world, 2026')).toBe(false);
+  });
+
+  it('false for UI timestamps and like counts in feed chrome', () => {
+    expect(containsArabicOrArabizi('3:51 instagram feed')).toBe(false);
+    expect(containsArabicOrArabizi('308K likes')).toBe(false);
   });
 });
 
@@ -57,7 +101,7 @@ describe('containsStrongArabizi', () => {
   });
 
   it('false for a single like-count token (308K)', () => {
-    expect(countArabiziSignals('308K likes')).toBe(1);
+    expect(countArabiziSignals('308K')).toBe(1);
     expect(containsStrongArabizi('308K likes')).toBe(false);
   });
 });

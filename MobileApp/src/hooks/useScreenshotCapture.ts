@@ -317,7 +317,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         ]);
 
         const fullText = ocrMixed.text ?? '';
-        const preview = truncateText(fullText, maxTextLength);
+        const cleanedForKeywords = ocrMixed.cleanedText ?? fullText;
+        const preview = truncateText(cleanedForKeywords, maxTextLength);
         const normalizedText = ocrMixed.normalizedText
           ? truncateText(ocrMixed.normalizedText, maxTextLength)
           : undefined;
