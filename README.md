@@ -444,7 +444,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.12** | — | Complete | **OCR noise reduction** — `cleanOcrText` strips UI timestamps/counts/phrases; stricter Arabizi gating (≥2 transformation digits, UI number exclusion); documented ML Kit Arabic limitation (no Tesseract on RN 0.74) |
 | **3.13** | — | Complete | **Debug Arabic OCR** — `POST /api/debug/arabic-ocr` (server Tesseract `ara`); backend keyword lists synced with mobile; Arabic script demo path added for supervisor validation |
 | **3.14** | — | Complete | **On-device Arabic OCR (Android)** — integrated `@devinikhiya/react-native-tesseractocr` with lazy initialization, sequential ML Kit→Tesseract fallback, no OCR concurrency, and `ara.traineddata` assets |
-| **4** | 29 June – 12 July 2026 | Planned | Gamification, parent web dashboard |
+| **4** | 29 June – 12 July 2026 | In progress | **Missions & gamification (backend)** — mission generation from risk/scores, points, badges, parent rewards, cognitive remediation validation |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
 **Current milestone:** Sprint **3.14** — on-device Arabic OCR (Android) with lazy Tesseract fallback, while preserving fast ML Kit-first capture flow.
@@ -545,11 +545,66 @@ Use **Arabic OCR Debug Tool** in `demo_dashboard.html` to upload a screenshot wi
 
 ---
 
-## Next Steps (Sprint 4)
+**Current milestone:** Sprint **4** — backend mission generation, gamification core (points, badges, rewards), and cognitive remediation APIs.
 
-1. **Real-world missions** – triggered when `combined_risk_score` exceeds thresholds.
-2. **Gamification** – points, badges, parent-defined rewards.
-3. **Parent web dashboard** – visualize vision + usage + scores.
+---
+
+## Missions & Gamification (Sprint 4)
+
+When risk or usage scores cross thresholds, the backend generates age-adapted missions (real-world, quiz, minigame, cognitive). Completing missions awards points; badges unlock automatically; parents define redeemable rewards.
+
+**Note:** All gamification `child_id` values reference `children.id` (same as JWT `childId`), not `users.id`.
+
+### Mission generation triggers
+
+| Trigger | Condition | Source |
+|---------|-----------|--------|
+| Risky content | `combinedRiskScore > 70` | `POST /api/screen-events` after insert |
+| Low wellbeing | `wellbeingScore < 40` | Daily cron (`dailyScoreJob.ts`) |
+| High addiction | `addictionScore > 70` | Daily cron (`dailyScoreJob.ts`) |
+| Mobile suggest | Client calls `POST /api/missions/suggest` | Compatibility shim (defaults score 75) |
+
+Rules: max **3 pending** missions per child; missions expire after **24 hours**; age from `children.birth_year` adapts template difficulty.
+
+### Mission types & cognitive validation
+
+| Type | Examples | Completion payload |
+|------|----------|-------------------|
+| `real_world` | Jumping jacks, family board game, screen-free break | `{ confirmed: true }` |
+| `quiz` | Online safety quiz | `{ answers: ['A','B','A'] }` — pass if ≥2/3 correct |
+| `minigame` | Tic-tac-toe, mini sudoku | `{ won: true }` or `{ completed: true }` |
+| `cognitive` | N-back, reaction time, Tower of Hanoi | `{ exerciseScore }`, `{ reactionTimeMs }`, `{ moves }` |
+
+Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full points; Hanoi optimal (7 moves for 3 disks) = base + 10 bonus.
+
+### Backend API (JWT required except `/health`, `/dev/*`, `/debug/*`)
+
+| Method | Path | Role | Purpose |
+|--------|------|------|---------|
+| POST | `/api/missions/suggest` | Child | Mobile compat — create mission from category |
+| POST | `/api/missions/generate` | Dev | Manual trigger (non-production) |
+| GET | `/api/missions/child/:childId` | Child / Parent | List pending, completed, expired |
+| GET | `/api/missions/child/:childId/points` | Child / Parent | Total points |
+| POST | `/api/missions/:missionId/complete` | Child | Validate, award points, check badges |
+| GET | `/api/rewards` | Parent / Child | List rewards (child sees unclaimed only) |
+| POST | `/api/rewards` | Parent | Create reward |
+| PUT | `/api/rewards/:rewardId` | Parent | Update reward |
+| DELETE | `/api/rewards/:rewardId` | Parent | Delete reward |
+| POST | `/api/rewards/:rewardId/claim` | Child | Spend points to claim |
+| GET | `/api/badges` | Any | All badges; `?childId=` adds earned status |
+| GET | `/api/badges/child/:childId` | Child / Parent | Earned badges |
+
+**Migration:** `backend/src/db/migrations/007_missions_gamification.sql` — run `npm run db:migrate` from `backend/`.
+
+**Tests:** `missionGenerator.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`.
+
+---
+
+## Next Steps (Sprint 4 continued)
+
+1. **Parent web dashboard** – visualize missions, points, badges, rewards.
+2. **Mobile mission UI** – list pending missions and wire cognitive mini-games.
+3. **Real quiz question bank** – replace safety quiz stub answers.
 
 ---
 
@@ -576,4 +631,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 30 May 2026  
-**Status:** Sprint 3.14 complete – on-device Arabic OCR (Android Tesseract fallback, English-page guard) + Sprint 3.13 debug Arabic endpoint; Yahoo Open NSFW TFLite on device.
+**Status:** Sprint 4 in progress – backend missions, gamification (points/badges/rewards), cognitive remediation APIs; Sprint 3.14 on-device OCR complete.

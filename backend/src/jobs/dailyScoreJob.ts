@@ -14,6 +14,10 @@ import {
   computeWellbeingScore,
 } from '../scoring/scoringEngine';
 import type { UsageSessionRecord } from '../scoring/aggregateUsage';
+import {
+  generateMissionFromHighAddiction,
+  generateMissionFromLowWellbeing,
+} from '../services/missionGenerator';
 
 interface ChildRow {
   id: string;
@@ -54,7 +58,7 @@ async function totalMinutesForDate(
 export async function computeAndStoreDailyScore(
   childId: string,
   scoreDate: Date,
-): Promise<void> {
+): Promise<{ addictionScore: number; wellbeingScore: number }> {
   const dateStr = toScoreDateString(scoreDate);
 
   const sessions = await fetchSessionsForDate(childId, dateStr);
@@ -123,6 +127,11 @@ export async function computeAndStoreDailyScore(
     wellbeingScore: wellbeing.score,
     sessionCount: sessions.length,
   });
+
+  return {
+    addictionScore: addiction.score,
+    wellbeingScore: wellbeing.score,
+  };
 }
 
 /** Process all children for the previous calendar day (UTC). */
@@ -142,7 +151,21 @@ export async function runDailyScoreJob(): Promise<void> {
 
   for (const child of children) {
     try {
-      await computeAndStoreDailyScore(child.id, yesterday);
+      const scores = await computeAndStoreDailyScore(child.id, yesterday);
+
+      try {
+        if (scores.wellbeingScore < 40) {
+          await generateMissionFromLowWellbeing(child.id, scores.wellbeingScore);
+        }
+        if (scores.addictionScore > 70) {
+          await generateMissionFromHighAddiction(child.id, scores.addictionScore);
+        }
+      } catch (missionErr) {
+        logger.error('Mission generation from daily score failed', {
+          childId: child.id,
+          err: missionErr instanceof Error ? missionErr.message : String(missionErr),
+        });
+      }
     } catch (err) {
       logger.error('Daily score failed for child', {
         childId: child.id,

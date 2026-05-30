@@ -11,6 +11,7 @@ import {
 } from '../validators/screenEvents.validator';
 import { query } from '../db/pool';
 import { logger } from '../utils/logger';
+import { generateMissionFromRisk } from '../services/missionGenerator';
 
 const router = Router();
 
@@ -89,6 +90,23 @@ router.post(
         imageRiskScore: event.image_risk_score,
         appPackage,
       });
+
+      if (combinedRiskScore != null && combinedRiskScore > 70) {
+        try {
+          await generateMissionFromRisk(
+            childId,
+            combinedRiskScore,
+            category ?? 'neutral',
+          );
+        } catch (missionErr) {
+          logger.error('Mission generation from screen event failed', {
+            childId,
+            combinedRiskScore,
+            err:
+              missionErr instanceof Error ? missionErr.message : String(missionErr),
+          });
+        }
+      }
 
       res.status(201).json({
         id: event.id,

@@ -4,6 +4,9 @@ import { verifyToken } from '../middleware/verifyToken';
 import screenEventsRoutes from './screenEvents.routes';
 import usageRoutes from './usage.routes';
 import scoresRoutes from './scores.routes';
+import missionsRoutes from './missions.routes';
+import rewardsRoutes from './rewards.routes';
+import badgesRoutes from './badges.routes';
 import devRoutes from './dev.routes';
 import debugRoutes from './debug.routes';
 
@@ -26,5 +29,8 @@ router.use(verifyToken);
 router.use('/screen-events', screenEventsRoutes);
 router.use('/usage', usageRoutes);
 router.use('/scores', scoresRoutes);
+router.use('/missions', missionsRoutes);
+router.use('/rewards', rewardsRoutes);
+router.use('/badges', badgesRoutes);
 
 export default router;
