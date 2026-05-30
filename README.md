@@ -526,7 +526,7 @@ The on-device OCR path now covers **English + French + Arabic + Tunisian Derja A
 | Arabic fallback (Android) | `MobileApp/src/services/mobileArabicOcr.ts` | `@devinikhiya/react-native-tesseractocr` + `ara.traineddata` (lazy init, sequential fallback only when Arabic is detected) |
 | Multilingual keyword filter | `MobileApp/src/utils/keywordFilter.ts` | EN / FR / AR / Derja lists; `keywordFilter(text, normalizedText?)` |
 
-**Android OCR flow:** ML Kit runs first on every frame. If Arabic Unicode is detected, Tesseract runs **after** ML Kit (never in parallel) and can replace the OCR text with Arabic output. This keeps non-Arabic captures fast.
+**Android OCR flow:** ML Kit runs first on every frame. Tesseract (`ara`) runs **after** ML Kit only when `arabicOcrTrigger.ts` detects Arabic script or garbled Latin from Arabic pages — **not** on English-dominant screens (e.g. Chrome on adult sites). If Tesseract hallucinates Arabic over substantial Latin ML Kit text, the pipeline keeps ML Kit output for keyword matching. Messaging apps skip Tesseract unless ML Kit already saw Arabic Unicode (Latin Derja stays on ML Kit + normalisation).
 
 **Platform note:** on-device Arabic Tesseract is currently enabled on **Android only**. iOS gracefully falls back to ML Kit-only OCR.
 
@@ -575,5 +575,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 29 May 2026  
-**Status:** Sprint 3.14 complete – on-device Arabic OCR (Android Tesseract fallback) + Sprint 3.13 debug Arabic endpoint; Yahoo Open NSFW TFLite on device.
+**Last updated:** 30 May 2026  
+**Status:** Sprint 3.14 complete – on-device Arabic OCR (Android Tesseract fallback, English-page guard) + Sprint 3.13 debug Arabic endpoint; Yahoo Open NSFW TFLite on device.

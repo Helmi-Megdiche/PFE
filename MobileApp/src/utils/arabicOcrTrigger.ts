@@ -13,6 +13,14 @@ const ML_KIT_ARABIC_GARBLE_RE = /\b[gh]?ss[i1l][r4]\b|\bbuay\b/i;
 /** English UI/search hints that the page likely shows Arabic script ML Kit missed. */
 const ARABIC_PAGE_HINT_RE = /\b(?:arabic|arabe|arabizi|calligraphy|scrittura)\b/i;
 
+/** Common English UI / browser chrome — several hits ⇒ Latin page, not garbled Arabic. */
+const ENGLISH_PAGE_HINT_RE =
+  /\b(?:the|and|you|for|with|views|recommended|comments|related|search|share|video|step)\b/i;
+
+/** Explicit English site / content terms ML Kit reads on adult pages (keep ML Kit path). */
+const ENGLISH_ADULT_CONTENT_RE =
+  /\b(?:pornhub|porn|xxx|blowjob|fuck|nude|naked|sex|step\s?sis|stepbro|hentai|creampie|brunette|dick)\b/i;
+
 const MESSAGING_APP_PACKAGES = new Set([
   'com.facebook.orca',
   'com.facebook.katana',
@@ -55,6 +63,22 @@ function pageHintsArabicContent(text: string): boolean {
 }
 
 /**
+ * True when OCR is clearly English/Latin (e.g. Chrome on pornhub.com).
+ * Prevents Tesseract `ara` from hallucinating Arabic over readable Latin text.
+ */
+export function looksLikeEnglishDominantPage(text: string): boolean {
+  if (!text || containsArabicScript(text)) {
+    return false;
+  }
+  const lower = text.toLowerCase();
+  if (ENGLISH_ADULT_CONTENT_RE.test(lower)) {
+    return true;
+  }
+  const hints = lower.match(ENGLISH_PAGE_HINT_RE);
+  return (hints?.length ?? 0) >= 3;
+}
+
+/**
  * True when on-device Tesseract should run after ML Kit.
  * ML Kit often misreads Arabic pages as Latin digits (e.g. "9ssir") with no Arabic Unicode.
  *
@@ -71,6 +95,13 @@ export function shouldAttemptOnDeviceArabicOcr(
   }
 
   if (isMessagingApp(options?.appPackage)) {
+    return false;
+  }
+
+  if (
+    looksLikeEnglishDominantPage(cleanedMlText) ||
+    looksLikeEnglishDominantPage(mlText)
+  ) {
     return false;
   }
 

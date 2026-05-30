@@ -64,19 +64,46 @@ function normalizeText(text: string): string {
   }
 }
 
+function countLatinLetters(text: string): number {
+  return (text.match(/[a-zA-Z]/g) ?? []).length;
+}
+
+function countArabicLetters(text: string): number {
+  return (text.match(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g) ?? [])
+    .length;
+}
+
+/** ML Kit read a long Latin page — Tesseract `ara` often hallucinates Arabic script here. */
+function isSubstantialLatinWithoutArabic(cleanedMlText: string): boolean {
+  if (detectArabicScript(cleanedMlText)) {
+    return false;
+  }
+  const latin = countLatinLetters(cleanedMlText);
+  const arabic = countArabicLetters(cleanedMlText);
+  return latin >= 40 && latin > arabic * 4;
+}
+
 function tesseractImprovesMlKit(
   mlText: string,
   cleanedMlText: string,
   tesseractText: string,
 ): boolean {
   const cleanedTesseract = cleanOcrText(tesseractText);
-  if (detectArabicScript(tesseractText) || detectArabicScript(cleanedTesseract)) {
+  const mlHasArabic = detectArabicScript(mlText) || detectArabicScript(cleanedMlText);
+  const tessHasArabic =
+    detectArabicScript(tesseractText) || detectArabicScript(cleanedTesseract);
+
+  // Tesseract `ara` on English/Latin UI — discard hallucinated Arabic, keep ML Kit.
+  if (!mlHasArabic && tessHasArabic && isSubstantialLatinWithoutArabic(cleanedMlText)) {
+    return false;
+  }
+
+  if (tessHasArabic) {
     return true;
   }
   // ML Kit missed Arabic entirely; keep Tesseract output if it has substantive text.
   if (
-    !detectArabicScript(mlText) &&
-    !detectArabicScript(cleanedMlText) &&
+    !mlHasArabic &&
     containsStrongArabizi(cleanedMlText) &&
     cleanedTesseract.length >= Math.max(20, Math.floor(cleanedMlText.length * 0.25))
   ) {
@@ -138,7 +165,12 @@ export async function extractTextMixed(
         hasArabiziPattern: containsDigitLetterPattern(cleanedTesseract),
       };
     }
-    if (__DEV__ && tesseract === null) {
+    if (__DEV__ && tesseract?.text) {
+      scLog('[OCR] Tesseract Arabic discarded — keeping ML Kit Latin text', {
+        mlChars: mlText.length,
+        tesseractChars: tesseract.text.length,
+      });
+    } else if (__DEV__ && tesseract === null) {
       scLog('[OCR] Tesseract fallback skipped, timed out, or failed — using ML Kit path');
     }
   } else if (__DEV__ && Platform.OS === 'android' && shouldAttemptOnDeviceArabicOcr(mlText, cleanedMlText, { appPackage: options?.appPackage }) && !tesseractPath) {

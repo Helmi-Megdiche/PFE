@@ -59,4 +59,16 @@ describe('shouldAttemptOnDeviceArabicOcr', () => {
       }),
     ).toBe(true);
   });
+
+  it('returns false for English adult site OCR in Chrome (no Arabic on page)', () => {
+    const pornhub =
+      'Pornhub Blowjob Brunette Creampie Related Recommended Comments ' +
+      "Sit on the couch Im going to fuck you Leana Lovings tells Stepbro S23:E9 " +
+      'Bratty Sis 6.5M views 27:29 his Dick was in the Pumpkin';
+    expect(
+      shouldAttemptOnDeviceArabicOcr(pornhub, pornhub, {
+        appPackage: 'com.android.chrome',
+      }),
+    ).toBe(false);
+  });
 });
