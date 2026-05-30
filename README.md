@@ -598,6 +598,29 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 
 **Tests:** `missionGenerator.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`.
 
+### Badge categories (Sprint 4.1)
+
+| Category | `requirement_type` | Examples | How earned |
+|----------|-------------------|----------|------------|
+| **Point badges** | `total_points` | Rising Star (100), Explorer (500), Legend (10,000) | Lifetime `child_points.total_points` threshold |
+| **Mission badges** | `missions_completed` | First Steps (1), Helper (10), Guardian Angel (500) | Count of completed missions |
+| **Age badges** | `age_range` | Little Explorer (6-9), Young Adventurer (10-12), Teen Champion (13-17) | Auto-awarded from `children.birth_year` on `checkAndAwardBadges` |
+| **Special badges** | `wellbeing_score_streak`, `cognitive_exercises_done`, `trigger_reason_count` | Well-being Warrior, Brain Trainer, Risk Buster | Legacy Sprint 4 rules |
+
+Age ranges are stored in `badges.requirement_config` JSONB (`{"min":10,"max":12}`). Only one age badge per child is expected (matching their current age band).
+
+**Migration:** `008_add_smart_badges.sql` adds tiered point/mission badges and age badges.
+
+**Smoke test (API running on port 3000):**
+
+```powershell
+cd backend
+npm run dev          # separate terminal
+npm run smoke:missions
+```
+
+Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps1) — health, dev tokens, generate/list/complete mission, points, badges, parent reward + child claim.
+
 ---
 
 ## Next Steps (Sprint 4 continued)

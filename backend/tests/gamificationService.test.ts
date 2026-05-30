@@ -1,7 +1,9 @@
 import {
   addPoints,
+  ageMatchesRange,
   checkAndAwardBadges,
   getChildPoints,
+  parseAgeRange,
 } from '../src/services/gamificationService';
 
 jest.mock('../src/db/pool', () => ({
@@ -13,6 +15,7 @@ jest.mock('../src/services/missionHelpers', () => ({
   countCognitiveExercisesCompleted: jest.fn(),
   countRiskyContentMissionsCompleted: jest.fn(),
   getWellbeingStreak: jest.fn(),
+  getChildAge: jest.fn(),
 }));
 
 import { query } from '../src/db/pool';
@@ -20,6 +23,7 @@ import {
   countCompletedMissions,
   countCognitiveExercisesCompleted,
   countRiskyContentMissionsCompleted,
+  getChildAge,
   getWellbeingStreak,
 } from '../src/services/missionHelpers';
 
@@ -28,10 +32,12 @@ const mockedCompleted = countCompletedMissions as jest.Mock;
 const mockedCognitive = countCognitiveExercisesCompleted as jest.Mock;
 const mockedRisky = countRiskyContentMissionsCompleted as jest.Mock;
 const mockedStreak = getWellbeingStreak as jest.Mock;
+const mockedAge = getChildAge as jest.Mock;
 
 describe('gamificationService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedAge.mockResolvedValue(null);
   });
 
   it('addPoints upserts child_points', async () => {
@@ -52,6 +58,22 @@ describe('gamificationService', () => {
     expect(points).toBe(0);
   });
 
+  it('parses age range from requirement_config', () => {
+    const range = parseAgeRange({
+      id: 'b1',
+      name: 'Young Adventurer',
+      description: null,
+      icon: null,
+      requirement_type: 'age_range',
+      requirement_value: null,
+      requirement_config: { min: 10, max: 12 },
+      points_awarded: 30,
+    });
+    expect(range).toEqual({ min: 10, max: 12 });
+    expect(ageMatchesRange(12, range!)).toBe(true);
+    expect(ageMatchesRange(13, range!)).toBe(false);
+  });
+
   it('awards First Mission badge when one mission completed', async () => {
     mockedCompleted.mockResolvedValue(1);
     mockedCognitive.mockResolvedValue(0);
@@ -68,6 +90,7 @@ describe('gamificationService', () => {
             icon: '🎯',
             requirement_type: 'missions_completed',
             requirement_value: 1,
+            requirement_config: null,
             points_awarded: 10,
           },
         ],
@@ -75,6 +98,7 @@ describe('gamificationService', () => {
       })
       .mockResolvedValueOnce({ rows: [{ exists: false }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ exists: true }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
     const awarded = await checkAndAwardBadges('child-1');
@@ -84,6 +108,39 @@ describe('gamificationService', () => {
       expect.stringContaining('INSERT INTO child_badges'),
       ['child-1', 'badge-1'],
     );
+  });
+
+  it('awards age badge when child age matches range', async () => {
+    mockedCompleted.mockResolvedValue(0);
+    mockedCognitive.mockResolvedValue(0);
+    mockedRisky.mockResolvedValue(0);
+    mockedStreak.mockResolvedValue(0);
+    mockedAge.mockResolvedValue(12);
+
+    mockedQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'age-badge',
+            name: 'Young Adventurer',
+            description: 'Age 10-12 years',
+            icon: '🧑',
+            requirement_type: 'age_range',
+            requirement_value: null,
+            requirement_config: { min: 10, max: 12 },
+            points_awarded: 30,
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [{ exists: false }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ exists: true }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const awarded = await checkAndAwardBadges('child-1');
+
+    expect(awarded).toContain('Young Adventurer');
   });
 
   it('does not duplicate badge when already earned', async () => {
@@ -102,6 +159,7 @@ describe('gamificationService', () => {
             icon: '🎯',
             requirement_type: 'missions_completed',
             requirement_value: 1,
+            requirement_config: null,
             points_awarded: 10,
           },
         ],

@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { validateQuery } from '../middleware/validate';
 import Joi from 'joi';
 import {
+  badgeCategory,
   getChildBadges,
   listAllBadgesWithEarnedStatus,
 } from '../services/gamificationService';
@@ -50,8 +51,10 @@ router.get(
           name: b.name,
           description: b.description,
           icon: b.icon,
+          category: b.category,
           requirementType: b.requirement_type,
           requirementValue: b.requirement_value,
+          requirementConfig: b.requirement_config,
           pointsAwarded: b.points_awarded,
           earned: b.earned,
           earnedAt: b.earnedAt,
@@ -86,8 +89,10 @@ router.get(
           name: b.name,
           description: b.description,
           icon: b.icon,
+          category: badgeCategory(b.requirement_type),
           requirementType: b.requirement_type,
           requirementValue: b.requirement_value,
+          requirementConfig: b.requirement_config,
           pointsAwarded: b.points_awarded,
           earnedAt: b.earned_at,
         })),
