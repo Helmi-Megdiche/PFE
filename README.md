@@ -445,6 +445,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.13** | — | Complete | **Debug Arabic OCR** — `POST /api/debug/arabic-ocr` (server Tesseract `ara`); backend keyword lists synced with mobile; Arabic script demo path added for supervisor validation |
 | **3.14** | — | Complete | **On-device Arabic OCR (Android)** — integrated `@devinikhiya/react-native-tesseractocr` with lazy initialization, sequential ML Kit→Tesseract fallback, no OCR concurrency, and `ara.traineddata` assets |
 | **4** | 29 June – 12 July 2026 | In progress | **Missions & gamification (backend)** — mission generation from risk/scores, points, badges, parent rewards, cognitive remediation validation |
+| **4.5** | — | Complete | **Smart mission generation** — adaptive risk threshold, cumulative burst detection, category-specific templates, escalation points, 15-min cooldown |
 | **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
 **Current milestone:** Sprint **3.14** — on-device Arabic OCR (Android) with lazy Tesseract fallback, while preserving fast ML Kit-first capture flow.
@@ -545,7 +546,7 @@ Use **Arabic OCR Debug Tool** in `demo_dashboard.html` to upload a screenshot wi
 
 ---
 
-**Current milestone:** Sprint **4** — backend mission generation, gamification core (points, badges, rewards), and cognitive remediation APIs.
+**Current milestone:** Sprint **4.5** — smart mission generation (adaptive thresholds, cumulative risk, category mapping, escalation, cooldown).
 
 ---
 
@@ -559,12 +560,31 @@ When risk or usage scores cross thresholds, the backend generates age-adapted mi
 
 | Trigger | Condition | Source |
 |---------|-----------|--------|
-| Risky content | `combinedRiskScore > 70` | `POST /api/screen-events` after insert |
+| Risky content (single) | `combinedRiskScore > adaptiveThreshold` (7-day avg + 10, clamped 50–80) | `POST /api/screen-events` → `generateMissionFromRisk` |
+| Risky content (cumulative) | Sum of last **5** events in 30 min **> 300** (min 3 events) | Same path — allows moderate singles to trigger via burst |
 | Low wellbeing | `wellbeingScore < 40` | Daily cron (`dailyScoreJob.ts`) |
 | High addiction | `addictionScore > 70` | Daily cron (`dailyScoreJob.ts`) |
-| Mobile suggest | Client calls `POST /api/missions/suggest` | Compatibility shim (defaults score 75) |
+| Mobile suggest | Client calls `POST /api/missions/suggest` | Same smart rules as risky content (score defaults to 75) |
 
-Rules: max **3 pending** missions per child; missions expire after **24 hours**; age from `children.birth_year` adapts template difficulty.
+**Screen events route:** `POST /api/screen-events` calls `generateMissionFromRisk` for **every** event where `combinedRiskScore != null` (not only scores above a fixed 70), so cumulative burst detection can fire when individual scores are below the adaptive threshold.
+
+**Skip reasons:** `below_risk_threshold`, `cooldown_active`, `pending_limit_reached`.
+
+Rules: max **3 pending** missions per child; missions expire after **24 hours**; **15-minute cooldown** between risky-content missions; age from `children.birth_year` adapts template difficulty.
+
+### Smart mission generation (Sprint 4.5)
+
+| Feature | Behaviour |
+|---------|-----------|
+| **Adaptive threshold** | `AVG(combined_risk_score)` over 7 days + 10, clamped 50–80; defaults to 50 for new children |
+| **Cumulative risk** | Last 5 non-null scores in 30 min; trigger if sum > 300 and count ≥ 3 |
+| **Category mapping** | `adult` → digital detox / relationships video; `violent`/`gore` → kindness / conflict quiz; `toxic` → kind words / empathy quiz; `dangerous`/`dangerous_challenge` → safety talk / parent chat; unknown → safety quiz / tic-tac-toe |
+| **Escalation** | After every 3 `risky_content` missions in 24 h, +30% points per level (max +60% at level 2); applied after template selection |
+| **Cooldown** | No new risky mission within 15 min of the last `risky_content` mission |
+
+Addiction/wellbeing daily-score triggers still take priority inside `pickMissionTemplate` over category mapping.
+
+**Migration:** `009_add_screen_events_child_created_idx.sql` — index on `screen_events (child_id, created_at DESC)`.
 
 ### Mission types & cognitive validation
 
@@ -594,9 +614,9 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 | GET | `/api/badges` | Any | All badges; `?childId=` adds earned status |
 | GET | `/api/badges/child/:childId` | Child / Parent | Earned badges |
 
-**Migration:** `backend/src/db/migrations/007_missions_gamification.sql` — run `npm run db:migrate` from `backend/`.
+**Migration:** `backend/src/db/migrations/007_missions_gamification.sql` — run `npm run db:migrate` from `backend/` (includes `009` index).
 
-**Tests:** `missionGenerator.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`.
+**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`.
 
 ### Badge categories (Sprint 4.1)
 

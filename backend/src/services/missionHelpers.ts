@@ -162,3 +162,66 @@ export async function countRiskyContentMissionsCompleted(
   );
   return Number(rows[0]?.count ?? 0);
 }
+
+export async function getAdaptiveRiskThreshold(childId: string): Promise<number> {
+  const { rows } = await query<{ avg_risk: string | null }>(
+    `SELECT AVG(combined_risk_score) AS avg_risk
+     FROM screen_events
+     WHERE child_id = $1
+       AND created_at > NOW() - INTERVAL '7 days'
+       AND combined_risk_score IS NOT NULL`,
+    [childId],
+  );
+  const avg = Number(rows[0]?.avg_risk ?? 0);
+  return Math.min(80, Math.max(50, Math.round(avg + 10)));
+}
+
+export async function getCumulativeRisk(
+  childId: string,
+): Promise<{ sum: number; count: number }> {
+  const { rows } = await query<{ sum: string; count: string }>(
+    `SELECT COALESCE(SUM(combined_risk_score), 0) AS sum,
+            COUNT(*)::text AS count
+     FROM (
+       SELECT combined_risk_score
+       FROM screen_events
+       WHERE child_id = $1
+         AND created_at > NOW() - INTERVAL '30 minutes'
+         AND combined_risk_score IS NOT NULL
+       ORDER BY created_at DESC
+       LIMIT 5
+     ) recent`,
+    [childId],
+  );
+  return {
+    sum: Number(rows[0]?.sum ?? 0),
+    count: Number(rows[0]?.count ?? 0),
+  };
+}
+
+export async function countRiskyMissionsLast24h(childId: string): Promise<number> {
+  const { rows } = await query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt
+     FROM missions
+     WHERE child_id = $1
+       AND trigger_reason = 'risky_content'
+       AND created_at > NOW() - INTERVAL '24 hours'`,
+    [childId],
+  );
+  return Number(rows[0]?.cnt ?? 0);
+}
+
+export async function hasRecentRiskyMission(
+  childId: string,
+  minutes = 15,
+): Promise<boolean> {
+  const { rows } = await query(
+    `SELECT 1 FROM missions
+     WHERE child_id = $1
+       AND trigger_reason = 'risky_content'
+       AND created_at > NOW() - ($2::text || ' minutes')::interval
+     LIMIT 1`,
+    [childId, String(minutes)],
+  );
+  return rows.length > 0;
+}

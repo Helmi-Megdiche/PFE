@@ -2,9 +2,13 @@ import { query } from '../db/pool';
 import {
   countPendingMissions,
   expireStaleMissions,
+  getAdaptiveRiskThreshold,
   getChildAge,
   getChildMissionHistory,
   getChildRecentScores,
+  getCumulativeRisk,
+  countRiskyMissionsLast24h,
+  hasRecentRiskyMission,
 } from './missionHelpers';
 
 export type MissionType = 'real_world' | 'quiz' | 'minigame' | 'cognitive';
@@ -85,7 +89,81 @@ export const MISSION_TEMPLATES: Record<string, MissionTemplate> = {
     points: 35,
     metadata: { game: 'sudoku', size: 4 },
   },
+  educational_relationships: {
+    type: 'real_world',
+    title: 'Learn About Respect',
+    description: 'Watch a 5-min video about healthy relationships with a parent',
+    points: 30,
+    metadata: { action: 'educational_video' },
+  },
+  kindness_mission: {
+    type: 'real_world',
+    title: 'Spread Kindness',
+    description: 'Write a kind message to a family member',
+    points: 25,
+    metadata: { action: 'kind_message' },
+  },
+  conflict_resolution_quiz: {
+    type: 'quiz',
+    title: 'Conflict Resolution',
+    description: 'Answer 3 questions about resolving arguments peacefully',
+    points: 30,
+    metadata: {
+      category: 'conflict',
+      numQuestions: 3,
+      correctAnswers: ['A', 'B', 'C'],
+    },
+  },
+  positive_communication: {
+    type: 'real_world',
+    title: 'Use Kind Words',
+    description: 'Speak only kind words for the next hour',
+    points: 35,
+    metadata: { action: 'kindness_hour' },
+  },
+  safety_talk: {
+    type: 'real_world',
+    title: 'Safety Talk',
+    description: 'Discuss online safety with a parent',
+    points: 40,
+    metadata: { action: 'parent_discussion' },
+  },
+  empathy_exercise: {
+    type: 'quiz',
+    title: 'Empathy Challenge',
+    description: 'Answer 2 questions about how others feel',
+    points: 25,
+    metadata: {
+      category: 'empathy',
+      numQuestions: 2,
+      correctAnswers: ['A', 'B'],
+    },
+  },
+  parent_discussion: {
+    type: 'real_world',
+    title: 'Parent Chat',
+    description: 'Have a 5-min conversation with a parent about staying safe online',
+    points: 40,
+    metadata: { action: 'discussion' },
+  },
 };
+
+const RISK_CATEGORY_TEMPLATES: Record<string, string[]> = {
+  adult: ['digital_detox', 'educational_relationships'],
+  violent: ['kindness_mission', 'conflict_resolution_quiz'],
+  toxic: ['positive_communication', 'empathy_exercise'],
+  dangerous_challenge: ['safety_talk', 'parent_discussion'],
+  default: ['quiz_safety', 'tictactoe'],
+};
+
+export function normalizeRiskCategory(category?: string): string {
+  const cat = (category || '').toLowerCase();
+  if (cat === 'dangerous' || cat === 'dangerous_challenge') return 'dangerous_challenge';
+  if (cat === 'violent' || cat === 'gore') return 'violent';
+  if (cat === 'adult') return 'adult';
+  if (cat === 'toxic') return 'toxic';
+  return 'default';
+}
 
 export type MissionTriggerReason =
   | 'risky_content'
@@ -164,7 +242,10 @@ export function pickMissionTemplate(input: PickMissionInput): {
     input.triggerReason === 'risky_content' ||
     (input.combinedRiskScore != null && input.combinedRiskScore > 70)
   ) {
-    key = avoidRecent(recent, ['quiz_safety', 'tictactoe']);
+    const normalized = normalizeRiskCategory(input.category);
+    const templateKeys =
+      RISK_CATEGORY_TEMPLATES[normalized] ?? RISK_CATEGORY_TEMPLATES.default;
+    key = avoidRecent(recent, templateKeys);
   } else {
     key = avoidRecent(recent, [
       'physical_activity',
@@ -200,6 +281,8 @@ export interface MissionTrigger {
 export interface MissionGenerationContext {
   combinedRiskScore?: number;
   category?: string;
+  escalationLevel?: number;
+  escalationMultiplier?: number;
 }
 
 const MAX_PENDING_MISSIONS = 3;
@@ -250,11 +333,18 @@ export async function generateMissionForChild(
     recentTemplateKeys: extractTemplateKeys(history),
   });
 
+  const basePoints = template.points;
+  const multiplier = context?.escalationMultiplier ?? 1;
+  const finalPoints = multiplier > 1 ? Math.ceil(basePoints * multiplier) : basePoints;
+
   const metadata = {
     type: template.type,
     templateKey: key,
     triggerScore: trigger.score,
     triggerCategory: context?.category ?? null,
+    basePoints,
+    escalationLevel: context?.escalationLevel ?? 0,
+    escalationMultiplier: multiplier,
     ...template.metadata,
   };
 
@@ -267,7 +357,7 @@ export async function generateMissionForChild(
       childId,
       template.title,
       template.description,
-      template.points,
+      finalPoints,
       trigger.type,
       JSON.stringify(metadata),
     ],
@@ -281,13 +371,27 @@ export async function generateMissionFromRisk(
   combinedRiskScore: number,
   category: string,
 ): Promise<MissionGenerationResult> {
-  if (combinedRiskScore <= 70) {
+  const threshold = await getAdaptiveRiskThreshold(childId);
+  const { sum, count } = await getCumulativeRisk(childId);
+  const cumulativeTrigger = sum > 300 && count >= 3;
+
+  if (await hasRecentRiskyMission(childId, 15)) {
+    return { created: false, reason: 'cooldown_active' };
+  }
+
+  const shouldCreate = combinedRiskScore > threshold || cumulativeTrigger;
+  if (!shouldCreate) {
     return { created: false, reason: 'below_risk_threshold' };
   }
+
+  const riskyCount24h = await countRiskyMissionsLast24h(childId);
+  const escalationLevel = Math.min(2, Math.floor(riskyCount24h / 3));
+  const escalationMultiplier = 1 + escalationLevel * 0.3;
+
   return generateMissionForChild(
     childId,
     { type: 'risky_content', score: combinedRiskScore },
-    { combinedRiskScore, category },
+    { combinedRiskScore, category, escalationLevel, escalationMultiplier },
   );
 }
 

@@ -91,7 +91,7 @@ router.post(
         appPackage,
       });
 
-      if (combinedRiskScore != null && combinedRiskScore > 70) {
+      if (combinedRiskScore != null) {
         try {
           await generateMissionFromRisk(
             childId,

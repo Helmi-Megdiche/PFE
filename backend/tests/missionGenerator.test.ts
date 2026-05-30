@@ -1,6 +1,8 @@
 import {
   pickMissionTemplate,
   generateMissionForChild,
+  generateMissionFromRisk,
+  normalizeRiskCategory,
   MISSION_TEMPLATES,
 } from '../src/services/missionGenerator';
 
@@ -14,6 +16,10 @@ jest.mock('../src/services/missionHelpers', () => ({
   getChildAge: jest.fn(),
   getChildRecentScores: jest.fn(),
   getChildMissionHistory: jest.fn(),
+  getAdaptiveRiskThreshold: jest.fn(),
+  getCumulativeRisk: jest.fn(),
+  countRiskyMissionsLast24h: jest.fn(),
+  hasRecentRiskyMission: jest.fn(),
 }));
 
 import { query } from '../src/db/pool';
@@ -23,6 +29,10 @@ import {
   getChildRecentScores,
   getChildMissionHistory,
   expireStaleMissions,
+  getAdaptiveRiskThreshold,
+  getCumulativeRisk,
+  countRiskyMissionsLast24h,
+  hasRecentRiskyMission,
 } from '../src/services/missionHelpers';
 
 const mockedQuery = query as jest.Mock;
@@ -30,6 +40,22 @@ const mockedCountPending = countPendingMissions as jest.Mock;
 const mockedGetChildAge = getChildAge as jest.Mock;
 const mockedGetRecentScores = getChildRecentScores as jest.Mock;
 const mockedGetHistory = getChildMissionHistory as jest.Mock;
+const mockedAdaptiveThreshold = getAdaptiveRiskThreshold as jest.Mock;
+const mockedCumulativeRisk = getCumulativeRisk as jest.Mock;
+const mockedRiskyCount24h = countRiskyMissionsLast24h as jest.Mock;
+const mockedRecentRisky = hasRecentRiskyMission as jest.Mock;
+
+describe('normalizeRiskCategory', () => {
+  it('maps aliases to normalized keys', () => {
+    expect(normalizeRiskCategory('adult')).toBe('adult');
+    expect(normalizeRiskCategory('gore')).toBe('violent');
+    expect(normalizeRiskCategory('dangerous')).toBe('dangerous_challenge');
+    expect(normalizeRiskCategory('dangerous_challenge')).toBe('dangerous_challenge');
+    expect(normalizeRiskCategory('toxic')).toBe('toxic');
+    expect(normalizeRiskCategory(undefined)).toBe('default');
+    expect(normalizeRiskCategory('neutral')).toBe('default');
+  });
+});
 
 describe('pickMissionTemplate', () => {
   beforeEach(() => {
@@ -66,7 +92,7 @@ describe('pickMissionTemplate', () => {
     expect(template.type).toBe('real_world');
   });
 
-  it('selects quiz or minigame for risky content', () => {
+  it('selects category-specific missions for adult risky content', () => {
     const { key } = pickMissionTemplate({
       triggerReason: 'risky_content',
       triggerScore: 85,
@@ -77,7 +103,49 @@ describe('pickMissionTemplate', () => {
       age: 11,
       recentTemplateKeys: [],
     });
-    expect(['quiz_safety', 'tictactoe']).toContain(key);
+    expect(['digital_detox', 'educational_relationships']).toContain(key);
+  });
+
+  it('selects category-specific missions for violent content', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'risky_content',
+      triggerScore: 85,
+      addictionScore: 30,
+      wellbeingScore: 60,
+      combinedRiskScore: 85,
+      category: 'gore',
+      age: 11,
+      recentTemplateKeys: [],
+    });
+    expect(['kindness_mission', 'conflict_resolution_quiz']).toContain(key);
+  });
+
+  it('selects category-specific missions for dangerous content', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'risky_content',
+      triggerScore: 85,
+      addictionScore: 30,
+      wellbeingScore: 60,
+      combinedRiskScore: 85,
+      category: 'dangerous',
+      age: 11,
+      recentTemplateKeys: [],
+    });
+    expect(['safety_talk', 'parent_discussion']).toContain(key);
+  });
+
+  it('prefers addiction branch over adult category when addiction is high', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'risky_content',
+      triggerScore: 85,
+      addictionScore: 85,
+      wellbeingScore: 60,
+      combinedRiskScore: 85,
+      category: 'adult',
+      age: 14,
+      recentTemplateKeys: [],
+    });
+    expect(['nback', 'tower', 'digital_detox']).toContain(key);
   });
 
   it('prefers simpler games for children under 10', () => {
@@ -146,7 +214,87 @@ describe('generateMissionForChild', () => {
     expect(expireStaleMissions).toHaveBeenCalledWith('child-1');
     expect(result.created).toBe(true);
     expect(result.missionId).toBe('mission-1');
-    expect(mockedQuery).toHaveBeenCalled();
+  });
+
+  it('applies escalation multiplier after template selection', async () => {
+    mockedGetRecentScores.mockResolvedValue({
+      addictionScore: 30,
+      wellbeingScore: 60,
+      date: '2026-05-29',
+    });
+
+    await generateMissionForChild(
+      'child-1',
+      { type: 'risky_content', score: 90 },
+      {
+        category: 'adult',
+        combinedRiskScore: 90,
+        escalationLevel: 1,
+        escalationMultiplier: 1.3,
+      },
+    );
+
+    const insertArgs = mockedQuery.mock.calls[0][1];
+    expect(insertArgs[3]).toBe(Math.ceil(30 * 1.3));
+    const metadata = JSON.parse(insertArgs[5] as string);
+    expect(metadata.basePoints).toBe(30);
+    expect(metadata.escalationLevel).toBe(1);
+  });
+});
+
+describe('generateMissionFromRisk', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedAdaptiveThreshold.mockResolvedValue(50);
+    mockedCumulativeRisk.mockResolvedValue({ sum: 0, count: 0 });
+    mockedRecentRisky.mockResolvedValue(false);
+    mockedRiskyCount24h.mockResolvedValue(0);
+    mockedCountPending.mockResolvedValue(0);
+    mockedGetChildAge.mockResolvedValue(12);
+    mockedGetRecentScores.mockResolvedValue({
+      addictionScore: 30,
+      wellbeingScore: 60,
+      date: '2026-05-29',
+    });
+    mockedGetHistory.mockResolvedValue([]);
+    mockedQuery.mockResolvedValue({ rows: [{ id: 'risk-mission' }], rowCount: 1 });
+  });
+
+  it('creates mission when score exceeds adaptive threshold', async () => {
+    mockedAdaptiveThreshold.mockResolvedValue(50);
+    const result = await generateMissionFromRisk('child-1', 75, 'adult');
+    expect(result.created).toBe(true);
+    expect(result.missionId).toBe('risk-mission');
+  });
+
+  it('creates mission on cumulative trigger when individual score is low', async () => {
+    mockedAdaptiveThreshold.mockResolvedValue(80);
+    mockedCumulativeRisk.mockResolvedValue({ sum: 310, count: 4 });
+    const result = await generateMissionFromRisk('child-1', 40, 'adult');
+    expect(result.created).toBe(true);
+  });
+
+  it('skips when below threshold and no cumulative trigger', async () => {
+    mockedAdaptiveThreshold.mockResolvedValue(80);
+    mockedCumulativeRisk.mockResolvedValue({ sum: 100, count: 2 });
+    const result = await generateMissionFromRisk('child-1', 40, 'adult');
+    expect(result.created).toBe(false);
+    expect(result.reason).toBe('below_risk_threshold');
+  });
+
+  it('skips when cooldown is active', async () => {
+    mockedRecentRisky.mockResolvedValue(true);
+    const result = await generateMissionFromRisk('child-1', 90, 'adult');
+    expect(result.created).toBe(false);
+    expect(result.reason).toBe('cooldown_active');
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('applies escalation after 3 prior risky missions in 24h', async () => {
+    mockedRiskyCount24h.mockResolvedValue(3);
+    await generateMissionFromRisk('child-1', 75, 'adult');
+    const insertArgs = mockedQuery.mock.calls[0][1];
+    expect(insertArgs[3]).toBe(Math.ceil(30 * 1.3));
   });
 });
 
