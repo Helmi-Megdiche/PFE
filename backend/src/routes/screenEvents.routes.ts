@@ -12,6 +12,7 @@ import {
 import { query } from '../db/pool';
 import { logger } from '../utils/logger';
 import { generateMissionFromRisk } from '../services/missionGenerator';
+import { getActivePendingMission } from '../services/missionHelpers';
 
 const router = Router();
 
@@ -91,13 +92,69 @@ router.post(
         appPackage,
       });
 
+      let newMission: Record<string, unknown> | null = null;
+      let missionGeneration: { created: boolean; reason?: string } | null = null;
       if (combinedRiskScore != null) {
         try {
-          await generateMissionFromRisk(
+          const missionResult = await generateMissionFromRisk(
             childId,
             combinedRiskScore,
             category ?? 'neutral',
           );
+          missionGeneration = {
+            created: missionResult.created,
+            ...(missionResult.reason ? { reason: missionResult.reason } : {}),
+          };
+          if (missionResult.created && missionResult.missionId) {
+            const { rows: missionRows } = await query<{
+              id: string;
+              title: string;
+              description: string;
+              points: number;
+              status: string;
+              metadata: Record<string, unknown> | null;
+            }>(
+              `SELECT id, title, description, points, status, metadata
+               FROM missions WHERE id = $1 LIMIT 1`,
+              [missionResult.missionId],
+            );
+            const m = missionRows[0];
+            if (m) {
+              const meta = (m.metadata ?? {}) as Record<string, unknown>;
+              newMission = {
+                id: m.id,
+                title: m.title,
+                description: m.description,
+                points: m.points,
+                status: m.status,
+                type: meta.type ?? 'real_world',
+                metadata: meta,
+              };
+            }
+          }
+          // Re-surface an existing pending mission so the child cannot keep
+          // browsing risky content during cooldown / when the pending limit is hit.
+          if (
+            !newMission &&
+            event.risk_flag &&
+            (missionResult.reason === 'cooldown_active' ||
+              missionResult.reason === 'pending_limit_reached')
+          ) {
+            const active = await getActivePendingMission(childId);
+            if (active) {
+              const meta = (active.metadata ?? {}) as Record<string, unknown>;
+              newMission = {
+                id: active.id,
+                title: active.title,
+                description: active.description,
+                points: active.points,
+                status: active.status,
+                type: meta.type ?? 'real_world',
+                metadata: meta,
+                reSurfaced: true,
+              };
+            }
+          }
         } catch (missionErr) {
           logger.error('Mission generation from screen event failed', {
             childId,
@@ -122,6 +179,8 @@ router.post(
         combinedRiskScore: event.combined_risk_score,
         category: event.category,
         createdAt: event.created_at,
+        newMission,
+        missionGeneration,
       });
     } catch (err) {
       logger.error('Failed to insert screen event', {

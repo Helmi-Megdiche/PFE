@@ -267,6 +267,13 @@ describe('generateMissionFromRisk', () => {
     expect(result.missionId).toBe('risk-mission');
   });
 
+  it('creates mission when score equals adaptive threshold', async () => {
+    mockedAdaptiveThreshold.mockResolvedValue(70);
+    const result = await generateMissionFromRisk('child-1', 70, 'adult');
+    expect(result.created).toBe(true);
+    expect(result.missionId).toBe('risk-mission');
+  });
+
   it('creates mission on cumulative trigger when individual score is low', async () => {
     mockedAdaptiveThreshold.mockResolvedValue(80);
     mockedCumulativeRisk.mockResolvedValue({ sum: 310, count: 4 });

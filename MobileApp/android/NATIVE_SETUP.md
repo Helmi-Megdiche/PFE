@@ -41,3 +41,25 @@ npx @react-native-community/cli@14.1.0 init MobileApp --pm npm --version 0.74.5
 ```
 
 This project was created with **CLI 14.1.0 + RN 0.74.5** (Option 1 failed on template copy; pinned CLI version worked).
+
+## Mission overlay (`com.mobileapp.overlay`)
+
+Blocks third-party apps with a full-screen mission card when risky capture creates a mission.
+
+| Piece | Location |
+|-------|----------|
+| Native modules | `OverlayMission`, `OverlayPermission` |
+| Foreground service | `OverlayService` (WindowManager `TYPE_APPLICATION_OVERLAY`) |
+| JS bridge | `src/native/OverlayMission.ts`, `src/native/overlayPermission.ts` |
+| Flow | `presentMissionFromCapture` → overlay or notification fallback |
+
+**Permission (one-time):** Settings → Apps → SafeGuard → **Display over other apps** → Allow. The app prompts on first launch.
+
+**Test:** Grant overlay permission → trigger risky content on Instagram → mission card should appear on top without opening SafeGuard.
+
+**Rebuild required** after changing native code:
+
+```bash
+cd MobileApp
+npm run android
+```

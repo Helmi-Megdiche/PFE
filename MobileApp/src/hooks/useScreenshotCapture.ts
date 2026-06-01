@@ -9,6 +9,7 @@ import { keywordFilter } from '../utils/keywordFilter';
 import { classifyImage } from '../services/imageClassifier';
 import { extractTextMixed } from '../services/mixedScriptOcr';
 import { postScreenEvent } from '../services/screenEventsApi';
+import { presentMissionFromCapture } from '../missions/presentMissionFromCapture';
 import { withTimeout } from '../utils/withTimeout';
 import {
   applyExplicitOcrBoost,
@@ -431,8 +432,25 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           category: finalCategory,
         });
 
-        await postScreenEvent(payload);
+        const screenEventResponse = await postScreenEvent(payload);
         scLog('POST /api/screen-events OK');
+        if (screenEventResponse.newMission?.id) {
+          const nm = screenEventResponse.newMission;
+          scLog('New mission from screen event — presenting mission UI', {
+            missionId: nm.id,
+            title: nm.title,
+          });
+          void presentMissionFromCapture({
+            missionId: nm.id,
+            title: nm.title,
+            description: nm.description,
+            points: nm.points,
+            missionType: String(nm.type ?? nm.metadata?.type ?? 'real_world'),
+            metadata: (nm.metadata ?? {}) as Record<string, unknown>,
+          });
+        } else if (screenEventResponse.missionGeneration) {
+          scLog('No new mission', screenEventResponse.missionGeneration);
+        }
         setLastCaptureAt(payload.timestamp);
         lastCaptureMsRef.current = Date.now();
         setLastError(null);
@@ -516,7 +534,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
-    scWarn('Foreground cache refresh timed out — still on System UI or unknown');
+    scLog('Foreground cache refresh timed out — still on System UI or unknown');
   }, []);
 
   const startSmartCaptureTimers = useCallback(() => {

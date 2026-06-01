@@ -66,7 +66,8 @@ export const DERJA_ARABIZI_HIGH_RISK: readonly string[] = [
   'nshammshi', 'nchammshi', 'nšammši', 'batruna', 'batrouna',
   'lahhas', 'la7has', 'l7as', 'mkhannas', 'm5annis', 'khannes', 'mkhannith',
   '3abd', '3abed', '3abid', 'na3l', 'naala', 'zatla', 'chrab',
-'9hab',  // Arabic script (Tesseract / native Arabic OCR)
+  '9hab',
+  // Arabic script (Tesseract / native Arabic OCR)
   'قحبة', 'ولد القحبة', 'لحاس', 'زب', 'نيك', 'مخنث', 'ميبون', 'نشّمشي', 'نعّل',
   'الزاب', 'الزوبة', 'الزبي', 'المنيك', 'المنيوك', 'الزبانة', 'الشرموطة',
   'القحاب', 'الخو', 'اللوطي', 'اللواط', 'السحاق', 'البعبوص',

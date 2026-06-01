@@ -50,8 +50,11 @@ export function useDevChildToken(apiBaseUrl: string): {
           throw new Error(`Dev token request failed: HTTP ${response.status}`);
         }
 
-        const data = (await response.json()) as { token: string };
+        const data = (await response.json()) as { token: string; childId?: string };
         await tokenStorage.setToken(data.token);
+        if (data.childId) {
+          await tokenStorage.setChildId(data.childId);
+        }
         if (!cancelled) {
           setHasToken(true);
           setError(null);

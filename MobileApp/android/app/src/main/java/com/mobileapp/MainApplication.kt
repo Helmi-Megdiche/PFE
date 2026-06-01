@@ -13,6 +13,7 @@ import com.facebook.soloader.SoLoader
 import com.mobileapp.screencapture.ScreenCapturePackage
 import com.mobileapp.foreground.ForegroundAppPackage
 import com.mobileapp.nsfw.NsfwTflitePackage
+import com.mobileapp.overlay.OverlayPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -23,6 +24,7 @@ class MainApplication : Application(), ReactApplication {
               add(ScreenCapturePackage())
               add(ForegroundAppPackage())
               add(NsfwTflitePackage())
+              add(OverlayPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

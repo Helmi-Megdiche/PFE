@@ -149,18 +149,24 @@ PFE/
 │   ├── .env.example
 │   ├── docker-compose.yml         # Postgres on host port 5433
 │   └── package.json
+├── backend/public/demo.html       # Parent dashboard (also served at /demo.html)
 ├── MobileApp/                     # Primary React Native app (use this)
 │   ├── android/
 │   │   └── app/src/main/java/com/mobileapp/
 │   │       ├── screencapture/     # ScreenCaptureModule, Package
+│   │       ├── overlay/           # OverlayService, OverlayMissionModule (Sprint 5)
 │   │       └── MediaProjectionForegroundService.java
 │   ├── src/
-│   │   ├── components/ScreenMonitor.tsx
-│   │   ├── hooks/useScreenshotCapture.ts
-│   │   ├── services/              # apiClient, screenEventsApi
+│   │   ├── navigation/            # React Navigation tabs + MissionScreen stack
+│   │   ├── screens/               # Monitor, Missions, Rewards, Badges, Profile
+│   │   ├── missions/              # presentMissionFromCapture, missionCompletion
+│   │   ├── native/OverlayMission.ts
+│   │   ├── hooks/useScreenshotCapture.ts, useMissionOverlayListener.ts
+│   │   ├── services/              # apiClient, missionsApi, screenEventsApi
 │   │   ├── config/apiConfig.ts
 │   │   └── utils/keywordFilter.ts
 │   └── package.json
+├── demo_dashboard.html            # Parent dashboard source (sync with backend/public/)
 ├── docs/                          # Report artefacts (to be expanded)
 ├── README.md
 └── .gitignore
@@ -257,6 +263,16 @@ Protected routes require `Authorization: Bearer <token>`.
 | `GET /api/scores/:childId/trend` | Parent JWT |
 
 In development, `AppApiBootstrap` fetches a child token from `/api/dev/child-token` (see migration `002_dev_seed.sql` for test child UUID).
+
+### Mission cooldown (development)
+
+Optional in `backend/.env` (see `backend/.env.example`):
+
+```env
+MISSION_RISK_COOLDOWN_MINUTES=2
+```
+
+Suppresses duplicate risky-content missions for N minutes after one is created (production default **15**). During cooldown, a further risky capture still returns `newMission` for the **existing pending** mission (`reSurfaced: true`) so the mobile overlay can block again.
 
 ### API Base URL for Physical Devices
 
@@ -421,7 +437,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 
 - **No screenshots leave the device.** JPEG is temporary; only text metadata is transmitted.
 - **JWT** secures API routes; use strong `JWT_SECRET` in production.
-- **Minimal permissions:** MediaProjection, foreground service, Internet.
+- **Minimal permissions:** MediaProjection, foreground service, Internet, **Display over other apps** (mission overlay on Android only).
 - **Explicit consent** required before monitoring starts (MediaProjection dialog).
 - Designed with **GDPR / COPPA** principles: data minimisation, on-device processing.
 
@@ -444,11 +460,10 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.12** | — | Complete | **OCR noise reduction** — `cleanOcrText` strips UI timestamps/counts/phrases; stricter Arabizi gating (≥2 transformation digits, UI number exclusion); documented ML Kit Arabic limitation (no Tesseract on RN 0.74) |
 | **3.13** | — | Complete | **Debug Arabic OCR** — `POST /api/debug/arabic-ocr` (server Tesseract `ara`); backend keyword lists synced with mobile; Arabic script demo path added for supervisor validation |
 | **3.14** | — | Complete | **On-device Arabic OCR (Android)** — integrated `@devinikhiya/react-native-tesseractocr` with lazy initialization, sequential ML Kit→Tesseract fallback, no OCR concurrency, and `ara.traineddata` assets |
-| **4** | 29 June – 12 July 2026 | In progress | **Missions & gamification (backend)** — mission generation from risk/scores, points, badges, parent rewards, cognitive remediation validation |
+| **4** | 29 June – 12 July 2026 | Complete | **Missions & gamification (backend)** — mission generation from risk/scores, points, badges, parent rewards, cognitive remediation validation |
 | **4.5** | — | Complete | **Smart mission generation** — adaptive risk threshold, cumulative burst detection, category-specific templates, escalation points, 15-min cooldown |
-| **5** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
-
-**Current milestone:** Sprint **3.14** — on-device Arabic OCR (Android) with lazy Tesseract fallback, while preserving fast ML Kit-first capture flow.
+| **5** | — | Complete | **Gamification frontend** — React Navigation UI, parent approval / reject / bonus, escape penalty, `SYSTEM_ALERT_WINDOW` mission overlay + notification fallback, dashboard at `/demo.html`, `fetchWithAuth` POST fix |
+| **6** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
 ---
 
@@ -546,11 +561,11 @@ Use **Arabic OCR Debug Tool** in `demo_dashboard.html` to upload a screenshot wi
 
 ---
 
-**Current milestone:** Sprint **4.5** — smart mission generation (adaptive thresholds, cumulative risk, category mapping, escalation, cooldown).
+**Current milestone:** Sprint **5** — gamification mobile UI, parent approval flow, escape penalty, and parent dashboard tools.
 
 ---
 
-## Missions & Gamification (Sprint 4)
+## Missions & Gamification (Sprint 4–5)
 
 When risk or usage scores cross thresholds, the backend generates age-adapted missions (real-world, quiz, minigame, cognitive). Completing missions awards points; badges unlock automatically; parents define redeemable rewards.
 
@@ -603,9 +618,13 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 |--------|------|------|---------|
 | POST | `/api/missions/suggest` | Child | Mobile compat — create mission from category |
 | POST | `/api/missions/generate` | Dev | Manual trigger (non-production) |
-| GET | `/api/missions/child/:childId` | Child / Parent | List pending, completed, expired |
+| GET | `/api/missions/child/:childId` | Child / Parent | List `pending`, `pendingApproval`, `completed`, `expired`, `failed` |
 | GET | `/api/missions/child/:childId/points` | Child / Parent | Total points |
-| POST | `/api/missions/:missionId/complete` | Child | Validate, award points, check badges |
+| POST | `/api/missions/:missionId/complete` | Child | Complete mission (`real_world` → `pending_approval`) |
+| POST | `/api/missions/:missionId/approve` | Parent | Approve real-world mission, award points |
+| POST | `/api/missions/:missionId/reject` | Parent | Reject pending approval → `expired` |
+| POST | `/api/missions/:missionId/abandon` | Child | Escape penalty (−10 pts, `failed`) |
+| POST | `/api/bonus/child/:childId` | Parent | Award bonus points |
 | GET | `/api/rewards` | Parent / Child | List rewards (child sees unclaimed only) |
 | POST | `/api/rewards` | Parent | Create reward |
 | PUT | `/api/rewards/:rewardId` | Parent | Update reward |
@@ -614,9 +633,36 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 | GET | `/api/badges` | Any | All badges; `?childId=` adds earned status |
 | GET | `/api/badges/child/:childId` | Child / Parent | Earned badges |
 
-**Migration:** `backend/src/db/migrations/007_missions_gamification.sql` — run `npm run db:migrate` from `backend/` (includes `009` index).
+**Migrations:** `007`–`010` — run `npm run db:migrate` from `backend/` (`010` adds `pending_approval`, `failed`, escape columns).
 
-**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`.
+**Screen events:** `POST /api/screen-events` response includes `newMission` when a mission is created or **re-surfaced** during cooldown (`missionGeneration` explains `cooldown_active`, etc.). Mobile calls `presentMissionFromCapture()` → native overlay or notification + `MissionScreen`.
+
+**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`, `missionsApproval.test.ts`.
+
+### Gamification frontend (Sprint 5)
+
+**Mobile app** (`MobileApp/`): React Navigation bottom tabs — Monitor, Missions, Rewards, Badges, Profile. Blocking `MissionScreen` on high-risk capture or when opening an active mission.
+
+| Feature | Behaviour |
+|---------|-----------|
+| **Parent approval** | Real-world complete → `pending_approval`; parent approves via dashboard |
+| **Escape penalty** | Home / app switch during active mission → `POST .../abandon`, −10 points |
+| **Bonus points** | Parent awards via dashboard → `POST /api/bonus/child/:childId` |
+| **Auto-mission** | `newMission` in screen-event response → **SYSTEM_ALERT_WINDOW overlay** on Android (blocks Instagram/other apps); fallback: notification + `MissionScreen` |
+| **Points refresh** | Pull on focus / pull-to-refresh; optional 60s poll on Missions & Profile (no push) |
+
+**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications. Approve/reject use `fetchWithAuth(path, { method: 'POST' })` so parent actions reach the API.
+
+**Mission overlay (Android):** grant **Settings → Display over other apps** for the child app. Native `OverlayService` shows a full-screen card on Chrome/Instagram/etc.; see [`MobileApp/android/NATIVE_SETUP.md`](MobileApp/android/NATIVE_SETUP.md). **Rebuild required** after native overlay changes (`npm run android`).
+
+**Limitations (Sprint 5):**
+
+- Quiz and cognitive missions use **placeholder validation** on mobile (full points for demo). Production needs a question bank and real scoring.
+- **Escape penalty** applies when `AppState` goes to background (Home). **Force-closing the app does not trigger a penalty.**
+- **Future:** server-side inactivity timeout to auto-fail abandoned missions.
+- **No FCM** — parent uses dashboard browser notifications (30s poll).
+- **Overlay permission** — child must grant **Display over other apps** (`Settings.canDrawOverlays`) for auto-block on third-party apps. Without it, a high-priority notification opens `MissionScreen` when the user returns to SafeGuard.
+- **Risky-mission cooldown** — after a risky-content mission is created, new ones are suppressed for `MISSION_RISK_COOLDOWN_MINUTES` (dev default **2 min**, prod **15 min**). During cooldown, a further risky capture **re-surfaces the existing pending mission** (overlay/`newMission`) so it cannot be ignored.
 
 ### Badge categories (Sprint 4.1)
 
@@ -643,11 +689,11 @@ Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps
 
 ---
 
-## Next Steps (Sprint 4 continued)
+## Next Steps (post Sprint 5)
 
-1. **Parent web dashboard** – visualize missions, points, badges, rewards.
-2. **Mobile mission UI** – list pending missions and wire cognitive mini-games.
-3. **Real quiz question bank** – replace safety quiz stub answers.
+1. **Real quiz / cognitive games** – replace demo stubs with question bank and timed exercises.
+2. **Parent dashboard polish** – multi-child list, mission history charts.
+3. **FCM push** (optional) – replace dashboard polling for approvals.
 
 ---
 
@@ -673,5 +719,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 30 May 2026  
-**Status:** Sprint 4 in progress – backend missions, gamification (points/badges/rewards), cognitive remediation APIs; Sprint 3.14 on-device OCR complete.
+**Last updated:** 1 June 2026  
+**Status:** Sprint 5 complete — gamification UI, mission overlay, parent dashboard; Sprint 4.5 smart mission generation; on-device OCR + TFLite NSFW (Sprint 3.14).

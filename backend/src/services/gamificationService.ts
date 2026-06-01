@@ -66,6 +66,27 @@ export async function addPoints(childId: string, points: number): Promise<void> 
   );
 }
 
+export async function deductPoints(childId: string, amount: number): Promise<number> {
+  if (amount <= 0) {
+    return getChildPoints(childId);
+  }
+  await query(
+    `INSERT INTO child_points (child_id, total_points)
+     VALUES ($1, 0)
+     ON CONFLICT (child_id) DO NOTHING`,
+    [childId],
+  );
+  const { rows } = await query<{ total_points: number }>(
+    `UPDATE child_points
+     SET total_points = GREATEST(0, total_points - $2),
+         updated_at = NOW()
+     WHERE child_id = $1
+     RETURNING total_points`,
+    [childId, amount],
+  );
+  return rows[0]?.total_points ?? 0;
+}
+
 export async function getChildPoints(childId: string): Promise<number> {
   const { rows } = await query<{ total_points: number }>(
     `SELECT total_points FROM child_points WHERE child_id = $1`,

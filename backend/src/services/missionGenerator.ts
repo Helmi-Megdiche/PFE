@@ -1,4 +1,5 @@
 import { query } from '../db/pool';
+import { env } from '../config/env';
 import {
   countPendingMissions,
   expireStaleMissions,
@@ -375,11 +376,11 @@ export async function generateMissionFromRisk(
   const { sum, count } = await getCumulativeRisk(childId);
   const cumulativeTrigger = sum > 300 && count >= 3;
 
-  if (await hasRecentRiskyMission(childId, 15)) {
+  if (await hasRecentRiskyMission(childId, env.missionRiskCooldownMinutes)) {
     return { created: false, reason: 'cooldown_active' };
   }
 
-  const shouldCreate = combinedRiskScore > threshold || cumulativeTrigger;
+  const shouldCreate = combinedRiskScore >= threshold || cumulativeTrigger;
   if (!shouldCreate) {
     return { created: false, reason: 'below_risk_threshold' };
   }

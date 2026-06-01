@@ -7,6 +7,7 @@ import scoresRoutes from './scores.routes';
 import missionsRoutes from './missions.routes';
 import rewardsRoutes from './rewards.routes';
 import badgesRoutes from './badges.routes';
+import bonusRoutes from './bonus.routes';
 import devRoutes from './dev.routes';
 import debugRoutes from './debug.routes';
 
@@ -32,5 +33,6 @@ router.use('/scores', scoresRoutes);
 router.use('/missions', missionsRoutes);
 router.use('/rewards', rewardsRoutes);
 router.use('/badges', badgesRoutes);
+router.use('/bonus', bonusRoutes);
 
 export default router;

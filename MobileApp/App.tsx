@@ -1,22 +1,28 @@
-import React, {useEffect, useState} from 'react';
-import {ActivityIndicator, SafeAreaView, StatusBar, StyleSheet, Text} from 'react-native';
-import {AppApiBootstrap} from './src/auth/AppApiBootstrap';
-import {NsfwDebugPanel} from './src/components/NsfwDebugPanel';
-import {ScreenMonitor} from './src/components/ScreenMonitor';
-import {UsageTracker} from './src/components/UsageTracker';
-import {tokenStorage} from './src/auth/tokenStorage';
-import {useDevChildToken} from './src/auth/useDevChildToken';
-import {getApiBaseUrl} from './src/config/apiConfig';
-import {preloadImageClassifier} from './src/services/imageClassifier';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, SafeAreaView, StyleSheet, Text } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { AppApiBootstrap } from './src/auth/AppApiBootstrap';
+import { useDevChildToken } from './src/auth/useDevChildToken';
+import { getApiBaseUrl } from './src/config/apiConfig';
+import { preloadImageClassifier } from './src/services/imageClassifier';
+import { UsageTracker } from './src/components/UsageTracker';
+import { navigationRef, flushPendingMissionNavigation } from './src/navigation/navigationRef';
+import { attachPendingMissionAppStateListener } from './src/navigation/pendingMissionNavigation';
+import { AppNavigator } from './src/navigation/AppNavigator';
+import { tokenStorage } from './src/auth/tokenStorage';
+import { useMissionOverlayListener } from './src/hooks/useMissionOverlayListener';
 
 const API_BASE_URL = getApiBaseUrl();
 
 function App(): React.JSX.Element {
   const [consentGranted] = useState(true);
-  const {ready, error: tokenError, hasToken, retry} = useDevChildToken(API_BASE_URL);
+  const { ready, error: tokenError, hasToken, retry } = useDevChildToken(API_BASE_URL);
+
+  useMissionOverlayListener();
 
   useEffect(() => {
     preloadImageClassifier();
+    attachPendingMissionAppStateListener();
   }, []);
 
   if (!ready) {
@@ -29,26 +35,30 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <AppApiBootstrap
-      baseUrl={API_BASE_URL}
-      getAccessToken={() => tokenStorage.getToken()}>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-        {tokenError ? (
-          <Text style={styles.error}>
-            JWT error: {tokenError}. Start backend on port 3000, then tap retry below.
-          </Text>
-        ) : null}
-        {!hasToken && __DEV__ ? (
-          <Text style={styles.hint} onPress={() => retry()}>
-            No dev JWT yet — tap to retry token fetch
-          </Text>
-        ) : null}
-        <ScreenMonitor consentGranted={consentGranted} intervalMs={60000} />
-        {__DEV__ ? <NsfwDebugPanel /> : null}
-        <UsageTracker enabled={consentGranted && hasToken} />
-      </SafeAreaView>
-    </AppApiBootstrap>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => {
+        flushPendingMissionNavigation();
+      }}>
+      <AppApiBootstrap
+        baseUrl={API_BASE_URL}
+        getAccessToken={() => tokenStorage.getToken()}>
+        <SafeAreaView style={styles.container}>
+          {tokenError ? (
+            <Text style={styles.error}>
+              JWT error: {tokenError}. Start backend on port 3000, then tap retry below.
+            </Text>
+          ) : null}
+          {!hasToken && __DEV__ ? (
+            <Text style={styles.hint} onPress={() => retry()}>
+              No dev JWT yet — tap to retry token fetch
+            </Text>
+          ) : null}
+          <AppNavigator />
+          <UsageTracker enabled={consentGranted && hasToken} />
+        </SafeAreaView>
+      </AppApiBootstrap>
+    </NavigationContainer>
   );
 }
 
@@ -66,6 +76,8 @@ const styles = StyleSheet.create({
   hint: {
     marginTop: 12,
     color: '#64748b',
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
   error: {
     padding: 12,

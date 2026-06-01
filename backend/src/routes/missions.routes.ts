@@ -25,6 +25,7 @@ import {
 import {
   addPoints,
   checkAndAwardBadges,
+  deductPoints,
   getChildBadges,
   getChildPoints,
 } from '../services/gamificationService';
@@ -44,7 +45,12 @@ interface MissionRow {
   expires_at: string;
   created_at: string;
   completed_at: string | null;
+  penalty_applied: number | null;
+  escaped_at: string | null;
 }
+
+const MISSION_SELECT = `id, child_id, title, description, points, status, trigger_reason,
+  metadata, expires_at, created_at, completed_at, penalty_applied, escaped_at`;
 
 function mapMission(row: MissionRow) {
   return {
@@ -59,6 +65,8 @@ function mapMission(row: MissionRow) {
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     completedAt: row.completed_at,
+    penaltyApplied: row.penalty_applied ?? 0,
+    escapedAt: row.escaped_at,
   };
 }
 
@@ -185,8 +193,7 @@ router.get(
       await expireStaleMissions(childId);
 
       const { rows } = await query<MissionRow>(
-        `SELECT id, child_id, title, description, points, status, trigger_reason,
-                metadata, expires_at, created_at, completed_at
+        `SELECT ${MISSION_SELECT}
          FROM missions
          WHERE child_id = $1
          ORDER BY created_at DESC`,
@@ -194,16 +201,160 @@ router.get(
       );
 
       const pending = rows.filter((r) => r.status === 'pending').map(mapMission);
+      const pendingApproval = rows
+        .filter((r) => r.status === 'pending_approval')
+        .map(mapMission);
       const completed = rows.filter((r) => r.status === 'completed').map(mapMission);
       const expired = rows.filter((r) => r.status === 'expired').map(mapMission);
+      const failed = rows.filter((r) => r.status === 'failed').map(mapMission);
 
-      res.json({ childId, pending, completed, expired });
+      res.json({ childId, pending, pendingApproval, completed, expired, failed });
     } catch (err) {
       logger.error('Failed to list missions', {
         childId,
         err: err instanceof Error ? err.message : String(err),
       });
       res.status(500).json({ error: 'Failed to fetch missions' });
+    }
+  },
+);
+
+/**
+ * POST /api/missions/:missionId/approve — parent approves real-world mission
+ */
+router.post(
+  '/:missionId/approve',
+  requireParentRole,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { missionId } = req.params;
+
+    try {
+      const { rows } = await query<MissionRow>(
+        `SELECT ${MISSION_SELECT} FROM missions WHERE id = $1 LIMIT 1`,
+        [missionId],
+      );
+      const mission = rows[0];
+      if (!mission) {
+        res.status(404).json({ error: 'Mission not found' });
+        return;
+      }
+      if (!assertChildAccess(req, mission.child_id, res)) {
+        return;
+      }
+      if (mission.status !== 'pending_approval') {
+        res.status(400).json({ error: 'Mission is not awaiting approval' });
+        return;
+      }
+
+      await query(
+        `UPDATE missions
+         SET status = 'completed', completed_at = NOW()
+         WHERE id = $1`,
+        [missionId],
+      );
+      await addPoints(mission.child_id, mission.points);
+      const newBadges = await checkAndAwardBadges(mission.child_id);
+      const totalPoints = await getChildPoints(mission.child_id);
+
+      res.json({ success: true, totalPoints, newBadges });
+    } catch (err) {
+      logger.error('Mission approve failed', {
+        missionId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to approve mission' });
+    }
+  },
+);
+
+/**
+ * POST /api/missions/:missionId/reject — parent rejects real-world mission
+ */
+router.post(
+  '/:missionId/reject',
+  requireParentRole,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { missionId } = req.params;
+
+    try {
+      const { rows } = await query<MissionRow>(
+        `SELECT ${MISSION_SELECT} FROM missions WHERE id = $1 LIMIT 1`,
+        [missionId],
+      );
+      const mission = rows[0];
+      if (!mission) {
+        res.status(404).json({ error: 'Mission not found' });
+        return;
+      }
+      if (!assertChildAccess(req, mission.child_id, res)) {
+        return;
+      }
+      if (mission.status !== 'pending_approval') {
+        res.status(400).json({ error: 'Mission is not awaiting approval' });
+        return;
+      }
+
+      await query(
+        `UPDATE missions SET status = 'expired' WHERE id = $1`,
+        [missionId],
+      );
+      res.json({ success: true });
+    } catch (err) {
+      logger.error('Mission reject failed', {
+        missionId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to reject mission' });
+    }
+  },
+);
+
+const ESCAPE_PENALTY = 10;
+
+/**
+ * POST /api/missions/:missionId/abandon — child escaped active mission
+ */
+router.post(
+  '/:missionId/abandon',
+  requireChildRole,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const childId = req.user!.childId!;
+    const { missionId } = req.params;
+
+    try {
+      const { rows } = await query<MissionRow>(
+        `SELECT ${MISSION_SELECT}
+         FROM missions WHERE id = $1 AND child_id = $2 LIMIT 1`,
+        [missionId, childId],
+      );
+      const mission = rows[0];
+      if (!mission) {
+        res.status(404).json({ error: 'Mission not found' });
+        return;
+      }
+      if (mission.status !== 'pending') {
+        res.status(400).json({ error: 'Only active pending missions can be abandoned' });
+        return;
+      }
+
+      await query(
+        `UPDATE missions
+         SET status = 'failed',
+             escaped_at = NOW(),
+             penalty_applied = $2
+         WHERE id = $1`,
+        [missionId, ESCAPE_PENALTY],
+      );
+      const totalPoints = await deductPoints(childId, ESCAPE_PENALTY);
+
+      res.json({ success: true, penalty: ESCAPE_PENALTY, totalPoints });
+    } catch (err) {
+      logger.error('Mission abandon failed', {
+        childId,
+        missionId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to abandon mission' });
     }
   },
 );
@@ -222,8 +373,7 @@ router.post(
 
     try {
       const { rows } = await query<MissionRow>(
-        `SELECT id, child_id, title, description, points, status, trigger_reason,
-                metadata, expires_at, created_at, completed_at
+        `SELECT ${MISSION_SELECT}
          FROM missions
          WHERE id = $1 AND child_id = $2
          LIMIT 1`,
@@ -236,17 +386,27 @@ router.post(
         return;
       }
 
-      if (mission.status === 'completed') {
-        res.status(409).json({ error: 'Mission already completed' });
+      if (mission.status === 'completed' || mission.status === 'pending_approval') {
+        res.status(409).json({ error: 'Mission already completed or awaiting approval' });
         return;
       }
 
-      if (mission.status === 'expired' || new Date(mission.expires_at) <= new Date()) {
+      if (
+        mission.status === 'expired' ||
+        mission.status === 'failed' ||
+        new Date(mission.expires_at) <= new Date()
+      ) {
         await query(
-          `UPDATE missions SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
+          `UPDATE missions SET status = 'expired'
+           WHERE id = $1 AND status IN ('pending', 'pending_approval')`,
           [missionId],
         );
         res.status(410).json({ error: 'Mission expired' });
+        return;
+      }
+
+      if (mission.status !== 'pending') {
+        res.status(400).json({ error: 'Mission cannot be completed in current state' });
         return;
       }
 
@@ -272,6 +432,24 @@ router.post(
         completionData: evaluation.completionData,
       };
 
+      if (missionType === 'real_world') {
+        await query(
+          `UPDATE missions
+           SET status = 'pending_approval',
+               metadata = $2::jsonb
+           WHERE id = $1`,
+          [missionId, JSON.stringify(updatedMetadata)],
+        );
+        const totalPoints = await getChildPoints(childId);
+        res.json({
+          status: 'pending_approval',
+          pointsAwarded: 0,
+          totalPoints,
+          message: 'Waiting for parent approval',
+        });
+        return;
+      }
+
       await query(
         `UPDATE missions
          SET status = 'completed',
@@ -287,6 +465,7 @@ router.post(
       const badges = await getChildBadges(childId);
 
       res.json({
+        status: 'completed',
         points: evaluation.pointsAwarded,
         totalPoints,
         newBadges,

@@ -80,12 +80,38 @@ export async function getChildMissionHistory(
   return rows;
 }
 
+export interface ActiveMissionRow {
+  id: string;
+  title: string;
+  description: string;
+  points: number;
+  status: string;
+  metadata: Record<string, unknown> | null;
+}
+
+/** Most recent active (still-pending) mission, used to re-surface a blocking overlay. */
+export async function getActivePendingMission(
+  childId: string,
+): Promise<ActiveMissionRow | null> {
+  const { rows } = await query<ActiveMissionRow>(
+    `SELECT id, title, description, points, status, metadata
+     FROM missions
+     WHERE child_id = $1
+       AND status = 'pending'
+       AND expires_at > NOW()
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [childId],
+  );
+  return rows[0] ?? null;
+}
+
 export async function countPendingMissions(childId: string): Promise<number> {
   const { rows } = await query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM missions
      WHERE child_id = $1
-       AND status = 'pending'
+       AND status IN ('pending', 'pending_approval')
        AND expires_at > NOW()`,
     [childId],
   );
@@ -97,7 +123,7 @@ export async function expireStaleMissions(childId: string): Promise<number> {
     `UPDATE missions
      SET status = 'expired'
      WHERE child_id = $1
-       AND status = 'pending'
+       AND status IN ('pending', 'pending_approval')
        AND expires_at <= NOW()`,
     [childId],
   );

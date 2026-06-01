@@ -2,6 +2,7 @@ import {
   addPoints,
   ageMatchesRange,
   checkAndAwardBadges,
+  deductPoints,
   getChildPoints,
   parseAgeRange,
 } from '../src/services/gamificationService';
@@ -56,6 +57,34 @@ describe('gamificationService', () => {
 
     const points = await getChildPoints('child-1');
     expect(points).toBe(0);
+  });
+
+  it('deductPoints floors total at zero', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ total_points: 0 }], rowCount: 1 });
+
+    const total = await deductPoints('child-1', 10);
+    expect(total).toBe(0);
+    expect(mockedQuery).toHaveBeenCalledWith(
+      expect.stringContaining('GREATEST(0'),
+      ['child-1', 10],
+    );
+  });
+
+  it('deductPoints returns updated balance', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ total_points: 40 }], rowCount: 1 });
+
+    const total = await deductPoints('child-1', 10);
+    expect(total).toBe(40);
+  });
+
+  it('deductPoints with zero amount returns current points', async () => {
+    mockedQuery.mockResolvedValue({ rows: [{ total_points: 25 }], rowCount: 1 });
+    const total = await deductPoints('child-1', 0);
+    expect(total).toBe(25);
   });
 
   it('parses age range from requirement_config', () => {

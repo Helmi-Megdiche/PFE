@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">MobileApp</string>
+    <string name="overlay_mission_badge">ACTIVE MISSION</string>
+    <string name="overlay_mission_warning">Complete this mission to continue using your device. Later applies a -10 point escape penalty.</string>
+    <string name="overlay_mission_later">Later (escape penalty)</string>
+    <string name="overlay_mission_complete_real_world">Mark as done</string>
+    <string name="overlay_mission_complete_quiz">I did it (demo quiz)</string>
+    <string name="overlay_mission_complete_cognitive">I did it (demo)</string>
+    <string name="overlay_mission_complete_minigame">Mark as won</string>
+    <string name="overlay_mission_complete_default">Complete</string>
+    <string name="overlay_service_channel_name">Mission overlay</string>
+    <string name="overlay_service_notification_title">Mission active</string>
+    <string name="overlay_service_notification_text">Blocking overlay is shown</string>
+    <string name="mission_notification_channel_name">Missions</string>
+    <string name="mission_notification_title">New mission</string>
 </resources>
