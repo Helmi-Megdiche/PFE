@@ -6,6 +6,7 @@ import {
   requestOverlayPermission,
   showMissionNotification,
 } from '../native/overlayPermission';
+import { beginMissionCaptureSession } from '../utils/missionCaptureSession';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
 
 export interface PresentMissionParams {
@@ -31,6 +32,7 @@ function metadataForOverlay(params: PresentMissionParams): Record<string, unknow
 
 export async function presentMissionFromCapture(params: PresentMissionParams): Promise<void> {
   const overlayMetadata = metadataForOverlay(params);
+  beginMissionCaptureSession();
 
   if (Platform.OS !== 'android' || !isOverlayMissionAvailable()) {
     navigateToMissionScreen({

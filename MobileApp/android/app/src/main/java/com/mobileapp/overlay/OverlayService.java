@@ -113,8 +113,43 @@ public class OverlayService extends Service {
                                     metadataJson != null ? metadataJson : "{}",
                                     new OverlayWindowHelper.ActionListener() {
                                         @Override
-                                        public void onStart(
-                                                String id, String type, String meta) {
+                                        public void onStartQuiz(
+                                                android.view.View overlayRoot,
+                                                String id,
+                                                String quizTitle,
+                                                int quizPoints,
+                                                String meta) {
+                                            OverlayQuizHelper.showQuiz(
+                                                    OverlayService.this,
+                                                    overlayRoot,
+                                                    id,
+                                                    quizTitle,
+                                                    quizPoints,
+                                                    meta,
+                                                    (missionId, type, metadataJson) ->
+                                                            OverlayEventBridge.emitMissionAction(
+                                                                    missionId,
+                                                                    "complete",
+                                                                    type,
+                                                                    metadataJson));
+                                        }
+
+                                        @Override
+                                        public void onStartInAppMission(
+                                                String id,
+                                                String t,
+                                                String desc,
+                                                int pts,
+                                                String type,
+                                                String meta) {
+                                            OverlayMissionLauncher.launchMissionApp(
+                                                    OverlayService.this,
+                                                    id,
+                                                    t,
+                                                    desc,
+                                                    pts,
+                                                    type,
+                                                    meta);
                                             OverlayEventBridge.emitMissionAction(
                                                     id, "start", type, meta);
                                         }

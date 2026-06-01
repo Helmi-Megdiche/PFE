@@ -34,6 +34,12 @@ import {
   resolveForegroundApp,
   resolveForegroundAppWithRetry,
 } from '../native/ForegroundApp';
+import {
+  isMissionCapturePaused,
+  registerMissionCaptureHandlers,
+  resetMissionCaptureSession,
+  unregisterMissionCaptureHandlers,
+} from '../utils/missionCaptureSession';
 import type {
   CaptureCycleResult,
   ScreenEventPayload,
@@ -248,6 +254,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
   const processCapturedFrame = useCallback(
     async (event: ScreenCapturedEvent): Promise<CaptureCycleResult> => {
+      if (isMissionCapturePaused()) {
+        scLog('Frame skipped — mission in progress');
+        return { success: false, skippedReason: 'mission' };
+      }
+
       if (isProcessingRef.current) {
         scWarn('Frame skipped — OCR already in progress');
         return { success: false, skippedReason: 'ocr' };
@@ -631,6 +642,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       return;
     }
     scLog('stopMonitoring()');
+    resetMissionCaptureSession();
     clearAdaptiveTimers();
     try {
       await getScreenCaptureModule().stopCapture();
@@ -671,6 +683,19 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       setLastError(err instanceof Error ? err.message : String(err));
     }
   }, [isMonitoring, startSmartCaptureTimers]);
+
+  useEffect(() => {
+    registerMissionCaptureHandlers(pauseCapture, resumeCapture);
+    return () => {
+      unregisterMissionCaptureHandlers();
+    };
+  }, [pauseCapture, resumeCapture]);
+
+  useEffect(() => {
+    if (isMonitoring && isMissionCapturePaused()) {
+      void pauseCapture();
+    }
+  }, [isMonitoring, pauseCapture]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {

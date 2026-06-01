@@ -25,6 +25,15 @@ function isParentalControlNsfwContext(lower: string): boolean {
   );
 }
 
+function isMissionBlockingOverlayContext(lower: string): boolean {
+  return (
+    /\bactive\s+mission\b/i.test(lower) &&
+    /\b(quiz|minigame|cognitive|safety\s+quiz|answer\s+\d+\s+question|points?\s+·|points?\s+pts)\b/i.test(
+      lower,
+    )
+  );
+}
+
 function isOwnGamificationDashboardContext(lower: string): boolean {
   const dashboardHints =
     /\b(missions?|bonus\s+points?|pending\s+approval|custom\s+mission|escape\s+log|mission\s+history|gamification|parent\s+tools|rewards?\s+management)\b/i.test(
@@ -45,8 +54,9 @@ export function filterBenignKeywordMatches(
   const lower = text.toLowerCase();
   const parentalUi = isParentalControlNsfwContext(lower);
   const ownDashboard = isOwnGamificationDashboardContext(lower);
+  const missionOverlay = isMissionBlockingOverlayContext(lower);
 
-  if (!parentalUi && !ownDashboard) {
+  if (!parentalUi && !ownDashboard && !missionOverlay) {
     return matchedKeywords;
   }
 
@@ -55,7 +65,7 @@ export function filterBenignKeywordMatches(
     if (parentalUi && (k === 'nsfw' || k === 'adult')) {
       return false;
     }
-    if (ownDashboard && ADULT_KEYWORD_SET.has(k)) {
+    if ((ownDashboard || missionOverlay) && ADULT_KEYWORD_SET.has(k)) {
       return false;
     }
     return true;

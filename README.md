@@ -716,6 +716,8 @@ Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps
 | **Custom missions** | Table `custom_missions` (`012_custom_missions.sql`) — parent CRUD via `GET/POST/PUT/DELETE /api/custom-missions`. Active missions are merged into real-world template pools in `pickMissionTemplate`. |
 | **Dashboard** | **Custom real-world missions** section on [`demo_dashboard.html`](demo_dashboard.html) and [`backend/public/demo.html`](backend/public/demo.html) — create, edit, delete. |
 | **OCR false positives** | `benignRiskContext` filters `nsfw` / `adult` on SafeSearch/Fiverr parental UI and parent-dashboard OCR; wired in mobile + backend `keywordFilter`. |
+| **Risky web search** | `riskySearchContext` boosts `nsfw` / `adult` when OCR shows an explicit query on Google/Bing/DuckDuckGo search URLs (complements benign filters). |
+| **Native overlay games** | `OverlayQuizHelper` / `OverlayMissionLauncher` — quiz and minigame/cognitive missions open in-app from overlay; `missionCaptureSession` dedupes capture while a mission is active. |
 | **Risky cooldown** | New risky missions are blocked only while a **pending** risky mission exists (completed missions no longer suppress the next capture). Re-surface still bumps pending missions during cooldown. |
 | **Adult mission pool** | `adult` category includes quizzes and minigames, not only real-world templates. |
 | **Overlay → game** | Quiz / minigame / cognitive overlay primary button emits `start` and opens `MissionScreen` (no API auto-complete from overlay). |
@@ -729,7 +731,7 @@ VALUES ('safety', 'Your question?', ARRAY['Wrong', 'Correct', 'Wrong2', 'Wrong3'
 
 **Migrations:** run `npm run db:migrate` from `backend/` after pulling (applies `011` and `012`).
 
-**Tests:** `quizService.test.ts`, `customMissionService.test.ts`, `benignRiskContext.test.ts` (mobile + backend), extended `missionGenerator.test.ts` and `missionHelpers.test.ts`.
+**Tests:** `quizService.test.ts`, `customMissionService.test.ts`, `benignRiskContext.test.ts`, `riskySearchContext.test.ts` (mobile + backend), extended `missionGenerator.test.ts` and `missionHelpers.test.ts`.
 
 ---
 

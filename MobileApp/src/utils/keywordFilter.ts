@@ -1,5 +1,6 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
 import { applyBenignKeywordContext } from './benignRiskContext';
+import { applyRiskySearchBoost } from './riskySearchContext';
 import { containsArabicScript, normalizeArabizi } from './normalizeArabizi';
 
 export type RiskCategory =
@@ -228,7 +229,7 @@ export function keywordFilter(
       applyBenignKeywordContext(normalizedText, scanText(normalizedText)),
     );
   }
-  return merged;
+  return applyRiskySearchBoost(text, merged);
 }
 
 /** Backend parity alias (mirrors `backend/src/utils/keywordFilter.ts#analyzeText`). */

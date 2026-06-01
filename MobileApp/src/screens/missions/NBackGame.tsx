@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Vibration } from 'react-native';
 import {
   makeNbackSequence,
   nbackAccuracy,
@@ -15,8 +15,9 @@ const STEP_MS = 1800;
 export function NBackGame({ metadata, onComplete }: GameProps): React.JSX.Element {
   const level = Math.max(1, Math.min(3, Number(metadata.level ?? 2)));
   const [sequence] = useState<string[]>(() => makeNbackSequence(TRIALS, level));
-  const [index, setIndex] = useState(-1);
+  const [index, setIndex] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [tapFlash, setTapFlash] = useState(false);
   const tallyRef = useRef<NbackTally>({
     hits: 0,
     misses: 0,
@@ -64,8 +65,15 @@ export function NBackGame({ metadata, onComplete }: GameProps): React.JSX.Elemen
     onComplete({ exerciseScore: accuracy });
   }, [finished, level, onComplete]);
 
+  const canScoreTrial = index >= level;
+  const waitingForWarmup = !finished && index < level;
+
   const onTapMatch = () => {
-    if (index < 0 || respondedRef.current) {
+    if (finished || respondedRef.current) {
+      return;
+    }
+    // Level 2+ needs `level` letters before a match is possible — ignore early taps.
+    if (!canScoreTrial) {
       return;
     }
     respondedRef.current = true;
@@ -75,6 +83,9 @@ export function NBackGame({ metadata, onComplete }: GameProps): React.JSX.Elemen
     } else {
       t.falseAlarms += 1;
     }
+    setTapFlash(true);
+    Vibration.vibrate(20);
+    setTimeout(() => setTapFlash(false), 200);
   };
 
   return (
@@ -84,13 +95,28 @@ export function NBackGame({ metadata, onComplete }: GameProps): React.JSX.Elemen
         Tap “Match” when the letter is the same as {level} step{level > 1 ? 's' : ''} ago.
       </Text>
       <View style={styles.stage}>
-        <Text style={styles.letter}>{index >= 0 && !finished ? sequence[index] : '•'}</Text>
+        <Text style={styles.letter}>{!finished ? sequence[index] : '•'}</Text>
       </View>
       <Text style={styles.progress}>
-        {finished ? 'Done!' : `Trial ${Math.max(0, index + 1)} / ${sequence.length}`}
+        {finished ? 'Done!' : `Trial ${index + 1} / ${sequence.length}`}
       </Text>
-      <Pressable style={[styles.matchBtn, finished && styles.btnDisabled]} disabled={finished} onPress={onTapMatch}>
-        <Text style={styles.matchText}>Match</Text>
+      {waitingForWarmup ? (
+        <Text style={styles.hint}>
+          Watch the first {level} letter{level > 1 ? 's' : ''} — matching starts on trial {level + 1}.
+        </Text>
+      ) : null}
+      {tapFlash ? <Text style={styles.tapOk}>Recorded</Text> : null}
+      <Pressable
+        style={[
+          styles.matchBtn,
+          (finished || waitingForWarmup) && styles.btnDisabled,
+          tapFlash && styles.matchBtnActive,
+        ]}
+        disabled={finished || waitingForWarmup}
+        onPress={onTapMatch}
+        hitSlop={12}
+        delayPressIn={0}>
+        <Text style={styles.matchText}>{waitingForWarmup ? 'Wait…' : 'Match'}</Text>
       </Pressable>
     </View>
   );
@@ -118,6 +144,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 48,
     borderRadius: 10,
   },
-  btnDisabled: { backgroundColor: '#475569' },
+  btnDisabled: { backgroundColor: '#475569', opacity: 0.85 },
+  matchBtnActive: { backgroundColor: '#1d4ed8' },
   matchText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  hint: { color: '#fbbf24', marginTop: 12, textAlign: 'center', paddingHorizontal: 12 },
+  tapOk: { color: '#4ade80', marginTop: 8, fontWeight: '700' },
 });

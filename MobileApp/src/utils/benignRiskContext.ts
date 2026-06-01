@@ -26,6 +26,16 @@ function isParentalControlNsfwContext(lower: string): boolean {
   );
 }
 
+/** Our blocking mission overlay / in-app MissionScreen (avoid self-OCR loops). */
+function isMissionBlockingOverlayContext(lower: string): boolean {
+  return (
+    /\bactive\s+mission\b/i.test(lower) &&
+    /\b(quiz|minigame|cognitive|safety\s+quiz|answer\s+\d+\s+question|points?\s+·|points?\s+pts)\b/i.test(
+      lower,
+    )
+  );
+}
+
 /** OCR of demo_dashboard / gamification parent tools. */
 function isOwnGamificationDashboardContext(lower: string): boolean {
   const dashboardHints =
@@ -50,8 +60,9 @@ export function filterBenignKeywordMatches(
   const lower = text.toLowerCase();
   const parentalUi = isParentalControlNsfwContext(lower);
   const ownDashboard = isOwnGamificationDashboardContext(lower);
+  const missionOverlay = isMissionBlockingOverlayContext(lower);
 
-  if (!parentalUi && !ownDashboard) {
+  if (!parentalUi && !ownDashboard && !missionOverlay) {
     return matchedKeywords;
   }
 
@@ -60,7 +71,7 @@ export function filterBenignKeywordMatches(
     if (parentalUi && (k === 'nsfw' || k === 'adult')) {
       return false;
     }
-    if (ownDashboard && ADULT_KEYWORD_SET.has(k)) {
+    if ((ownDashboard || missionOverlay) && ADULT_KEYWORD_SET.has(k)) {
       return false;
     }
     return true;

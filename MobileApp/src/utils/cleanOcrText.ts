@@ -31,6 +31,11 @@ const UI_PHRASES: readonly string[] = [
   'pending approval',
   'custom mission',
   'mission history',
+  'active mission',
+  'safety quiz',
+  'online safety quiz',
+  'start quiz',
+  'play game',
 ];
 
 /** Status-bar / in-app clock (e.g. 4:18, 3:51 PM). */

@@ -13,6 +13,7 @@ import {
   promptOverlayPermissionIfNeeded,
 } from '../native/overlayPermission';
 import { navigateToMissionScreen } from '../navigation/navigationRef';
+import { endMissionCaptureSession } from '../utils/missionCaptureSession';
 import { scError, scLog } from '../utils/screenCaptureLogger';
 
 function showBriefMessage(message: string): void {
@@ -54,9 +55,11 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
       event.action,
     );
     await hideMissionOverlay();
+    endMissionCaptureSession();
     showBriefMessage(result.message);
   } catch (err) {
     await hideMissionOverlay();
+    endMissionCaptureSession();
     const message = err instanceof Error ? err.message : String(err);
     scError('Overlay mission action failed', err);
     showBriefMessage(`Mission failed: ${message}`);

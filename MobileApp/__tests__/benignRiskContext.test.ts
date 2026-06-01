@@ -23,6 +23,13 @@ describe('benignRiskContext', () => {
     expect(filtered.matchedKeywords).toEqual([]);
   });
 
+  it('drops keywords on ACTIVE MISSION quiz overlay OCR', () => {
+    const text =
+      'ACTIVE MISSION Online Safety Quiz 44 points quiz Answer 3 questions about staying safe';
+    const result = keywordFilter(text);
+    expect(result.riskFlag).toBe(false);
+  });
+
   it('keeps nsfw when not parental-control context', () => {
     const text = 'watch free nsfw videos now';
     expect(filterBenignKeywordMatches(text, ['nsfw'])).toEqual(['nsfw']);

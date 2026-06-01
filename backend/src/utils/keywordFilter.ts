@@ -1,5 +1,6 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
 import { applyBenignKeywordContext } from './benignRiskContext';
+import { applyRiskySearchBoost } from './riskySearchContext';
 import { computeOcrRiskScore } from './riskCombination';
 
 export type RiskCategory =
@@ -248,15 +249,16 @@ export function keywordFilter(
   text: string,
   normalizedText?: string,
 ): KeywordFilterResult {
-  const primary = applyBenignKeywordContext(text, scanText(text));
+  let merged = applyBenignKeywordContext(text, scanText(text));
   if (!normalizedText || normalizedText === text) {
-    return primary;
+    return applyRiskySearchBoost(text, merged);
   }
   const secondary = applyBenignKeywordContext(
     normalizedText,
     scanText(normalizedText),
   );
-  return mergeResults(primary, secondary);
+  merged = mergeResults(merged, secondary);
+  return applyRiskySearchBoost(text, merged);
 }
 
 /**

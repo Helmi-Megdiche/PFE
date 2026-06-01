@@ -17,6 +17,7 @@ import {
   type MissionCompletionPayload,
 } from '../services/missionsApi';
 import { resolveGameComponent } from './missions/gameRegistry';
+import { endMissionCaptureSession } from '../utils/missionCaptureSession';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MissionScreen'>;
 
@@ -51,18 +52,20 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : String(err));
     } finally {
+      endMissionCaptureSession();
       navigation.goBack();
     }
   }, [missionId, navigation]);
 
-  // Escape penalty when the app is sent to background during an active mission.
+  // Escape penalty only when the app leaves the foreground (not brief "inactive" on Android).
   useEffect(() => {
     const appStateRef = { current: AppState.currentState };
+    const mountedAt = Date.now();
     const sub = AppState.addEventListener('change', (next) => {
-      if (
-        appStateRef.current === 'active' &&
-        (next === 'background' || next === 'inactive')
-      ) {
+      const leftForeground =
+        appStateRef.current === 'active' && next === 'background';
+      const graceMs = 3_000;
+      if (leftForeground && Date.now() - mountedAt > graceMs && !settledRef.current) {
         void handleAbandon();
       }
       appStateRef.current = next;
@@ -96,7 +99,13 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
             ? res.message ?? 'Waiting for parent approval'
             : `+${awarded} points! Total: ${res.totalPoints}`;
         Alert.alert('Mission', message, [
-          { text: 'OK', onPress: () => navigation.goBack() },
+          {
+            text: 'OK',
+            onPress: () => {
+              endMissionCaptureSession();
+              navigation.goBack();
+            },
+          },
         ]);
       } catch (err) {
         setSubmitting(false);
@@ -108,7 +117,11 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={false}
+        bounces={false}>
         <View style={styles.header}>
           <Text style={styles.badge}>ACTIVE MISSION</Text>
           <Pressable onPress={confirmQuit} hitSlop={12}>

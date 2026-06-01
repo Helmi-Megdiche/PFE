@@ -27,8 +27,20 @@ public final class OverlayWindowHelper {
   private OverlayWindowHelper() {}
 
   public interface ActionListener {
-    /** Opens the in-app game/quiz screen (quiz, minigame, cognitive). */
-    void onStart(String missionId, String missionType, String metadataJson);
+    void onStartQuiz(
+            android.view.View overlayRoot,
+            String missionId,
+            String title,
+            int points,
+            String metadataJson);
+
+    void onStartInAppMission(
+            String missionId,
+            String title,
+            String description,
+            int points,
+            String missionType,
+            String metadataJson);
 
     void onComplete(String missionId, String missionType, String metadataJson);
 
@@ -94,8 +106,11 @@ public final class OverlayWindowHelper {
           }
           actionSent[0] = true;
           setButtonsEnabled(completeBtn, laterBtn, false);
-          if (isPlayableMissionType(missionType)) {
-            listener.onStart(missionId, missionType, metadataJson);
+          if ("quiz".equals(missionType)) {
+            listener.onStartQuiz(root, missionId, title, points, metadataJson);
+          } else if (isPlayableMissionType(missionType)) {
+            listener.onStartInAppMission(
+                missionId, title, description, points, missionType, metadataJson);
           } else {
             listener.onComplete(missionId, missionType, metadataJson);
           }
