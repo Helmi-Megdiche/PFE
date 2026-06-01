@@ -14,6 +14,7 @@ jest.mock('../src/services/missionHelpers', () => ({
   expireStaleMissions: jest.fn().mockResolvedValue(0),
   countPendingMissions: jest.fn(),
   getChildAge: jest.fn(),
+  getChildParentId: jest.fn(),
   getChildRecentScores: jest.fn(),
   getChildMissionHistory: jest.fn(),
   getAdaptiveRiskThreshold: jest.fn(),
@@ -22,10 +23,21 @@ jest.mock('../src/services/missionHelpers', () => ({
   hasRecentRiskyMission: jest.fn(),
 }));
 
+jest.mock('../src/services/customMissionService', () => ({
+  getActiveCustomMissions: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../src/services/quizService', () => ({
+  enrichQuizMetadata: jest.fn((_key: string, template: unknown) =>
+    Promise.resolve(template),
+  ),
+}));
+
 import { query } from '../src/db/pool';
 import {
   countPendingMissions,
   getChildAge,
+  getChildParentId,
   getChildRecentScores,
   getChildMissionHistory,
   expireStaleMissions,
@@ -34,10 +46,16 @@ import {
   countRiskyMissionsLast24h,
   hasRecentRiskyMission,
 } from '../src/services/missionHelpers';
+import { enrichQuizMetadata } from '../src/services/quizService';
+import { getActiveCustomMissions } from '../src/services/customMissionService';
+
+const mockedEnrichQuiz = enrichQuizMetadata as jest.Mock;
+const mockedGetCustomMissions = getActiveCustomMissions as jest.Mock;
 
 const mockedQuery = query as jest.Mock;
 const mockedCountPending = countPendingMissions as jest.Mock;
 const mockedGetChildAge = getChildAge as jest.Mock;
+const mockedGetChildParentId = getChildParentId as jest.Mock;
 const mockedGetRecentScores = getChildRecentScores as jest.Mock;
 const mockedGetHistory = getChildMissionHistory as jest.Mock;
 const mockedAdaptiveThreshold = getAdaptiveRiskThreshold as jest.Mock;
@@ -103,7 +121,14 @@ describe('pickMissionTemplate', () => {
       age: 11,
       recentTemplateKeys: [],
     });
-    expect(['digital_detox', 'educational_relationships']).toContain(key);
+    expect([
+      'digital_detox',
+      'educational_relationships',
+      'quiz_safety',
+      'conflict_resolution_quiz',
+      'tictactoe',
+      'nback',
+    ]).toContain(key);
   });
 
   it('selects category-specific missions for violent content', () => {
@@ -176,6 +201,30 @@ describe('pickMissionTemplate', () => {
       expect(MISSION_TEMPLATES[key]).toBeDefined();
     }
   });
+
+  it('can pick a parent custom real-world mission', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0.99);
+    const { key, template } = pickMissionTemplate({
+      triggerReason: 'low_wellbeing',
+      triggerScore: 30,
+      addictionScore: 30,
+      wellbeingScore: 30,
+      age: 12,
+      recentTemplateKeys: [],
+      customMissions: [
+        {
+          id: 'custom-1',
+          title: 'Walk the dog',
+          description: '15 minute walk',
+          points: 25,
+        },
+      ],
+    });
+    expect(key).toBe('custom:custom-1');
+    expect(template.type).toBe('real_world');
+    expect(template.title).toBe('Walk the dog');
+    expect(template.metadata.customMissionId).toBe('custom-1');
+  });
 });
 
 describe('generateMissionForChild', () => {
@@ -183,6 +232,7 @@ describe('generateMissionForChild', () => {
     jest.clearAllMocks();
     mockedCountPending.mockResolvedValue(0);
     mockedGetChildAge.mockResolvedValue(12);
+    mockedGetChildParentId.mockResolvedValue(null);
     mockedGetRecentScores.mockResolvedValue({
       addictionScore: 75,
       wellbeingScore: 35,
@@ -214,6 +264,38 @@ describe('generateMissionForChild', () => {
     expect(expireStaleMissions).toHaveBeenCalledWith('child-1');
     expect(result.created).toBe(true);
     expect(result.missionId).toBe('mission-1');
+  });
+
+  it('loads parent custom missions when parent exists', async () => {
+    mockedGetChildParentId.mockResolvedValue('parent-1');
+    mockedGetCustomMissions.mockResolvedValue([
+      {
+        id: 'c1',
+        title: 'Custom chore',
+        description: 'Tidy room',
+        points: 20,
+      },
+    ]);
+
+    await generateMissionForChild('child-1', { type: 'low_wellbeing', score: 30 });
+
+    expect(mockedGetCustomMissions).toHaveBeenCalledWith('parent-1');
+  });
+
+  it('enriches quiz missions from the database', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockedGetRecentScores.mockResolvedValue({
+      addictionScore: 30,
+      wellbeingScore: 60,
+      date: '2026-05-29',
+    });
+
+    await generateMissionForChild('child-1', {
+      type: 'risky_content',
+      score: 90,
+    }, { category: 'default', combinedRiskScore: 90 });
+
+    expect(mockedEnrichQuiz).toHaveBeenCalled();
   });
 
   it('applies escalation multiplier after template selection', async () => {

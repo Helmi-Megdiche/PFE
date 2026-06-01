@@ -1,4 +1,5 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
+import { applyBenignKeywordContext } from './benignRiskContext';
 import { containsArabicScript, normalizeArabizi } from './normalizeArabizi';
 
 export type RiskCategory =
@@ -209,17 +210,23 @@ export function keywordFilter(
   text: string,
   normalizedText?: string,
 ): KeywordFilterResult {
-  let merged = scanText(text);
+  let merged = applyBenignKeywordContext(text, scanText(text));
   const autoNormalized = normalizeArabizi(text);
   if (autoNormalized && autoNormalized !== text.toLowerCase()) {
-    merged = mergeResults(merged, scanText(autoNormalized));
+    merged = mergeResults(
+      merged,
+      applyBenignKeywordContext(autoNormalized, scanText(autoNormalized)),
+    );
   }
   if (
     normalizedText &&
     normalizedText !== text &&
     normalizedText !== autoNormalized
   ) {
-    merged = mergeResults(merged, scanText(normalizedText));
+    merged = mergeResults(
+      merged,
+      applyBenignKeywordContext(normalizedText, scanText(normalizedText)),
+    );
   }
   return merged;
 }

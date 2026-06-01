@@ -113,6 +113,13 @@ public class OverlayService extends Service {
                                     metadataJson != null ? metadataJson : "{}",
                                     new OverlayWindowHelper.ActionListener() {
                                         @Override
+                                        public void onStart(
+                                                String id, String type, String meta) {
+                                            OverlayEventBridge.emitMissionAction(
+                                                    id, "start", type, meta);
+                                        }
+
+                                        @Override
                                         public void onComplete(
                                                 String id, String type, String meta) {
                                             OverlayEventBridge.emitMissionAction(

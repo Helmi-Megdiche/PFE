@@ -18,7 +18,7 @@ export const env = {
   jwtIssuer: process.env.JWT_ISSUER ?? 'pfe-parental-control',
   logLevel: process.env.LOG_LEVEL ?? 'info',
   isProduction: process.env.NODE_ENV === 'production',
-  /** Minutes to suppress a new risky-content mission after one was created. */
+  /** Legacy env name; cooldown is now “pending risky mission exists” (see hasRecentRiskyMission). */
   missionRiskCooldownMinutes: Number(
     process.env.MISSION_RISK_COOLDOWN_MINUTES ??
       (process.env.NODE_ENV === 'production' ? 15 : 2),

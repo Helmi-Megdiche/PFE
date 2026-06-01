@@ -20,7 +20,18 @@ export interface PresentMissionParams {
 /**
  * Shows a blocking mission UI after risky capture: overlay (preferred), else notification + in-app screen.
  */
+function metadataForOverlay(params: PresentMissionParams): Record<string, unknown> {
+  return {
+    ...params.metadata,
+    overlayTitle: params.title,
+    overlayDescription: params.description,
+    overlayPoints: params.points,
+  };
+}
+
 export async function presentMissionFromCapture(params: PresentMissionParams): Promise<void> {
+  const overlayMetadata = metadataForOverlay(params);
+
   if (Platform.OS !== 'android' || !isOverlayMissionAvailable()) {
     navigateToMissionScreen({
       missionId: params.missionId,
@@ -52,7 +63,7 @@ export async function presentMissionFromCapture(params: PresentMissionParams): P
   await showMissionNotification(params);
 
   try {
-    await showMissionOverlay(params);
+    await showMissionOverlay({ ...params, metadata: overlayMetadata });
     scLog('Mission overlay shown', { missionId: params.missionId });
   } catch (err) {
     scWarn('showMissionOverlay failed', err);

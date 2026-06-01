@@ -271,17 +271,23 @@ export async function countRiskyMissionsLast24h(childId: string): Promise<number
   return Number(rows[0]?.cnt ?? 0);
 }
 
+/**
+ * True while the child still has an unfinished risky-content mission.
+ * Completed missions do not block a new mission on the next risky capture.
+ */
 export async function hasRecentRiskyMission(
   childId: string,
-  minutes = 15,
+  _minutes = 15,
 ): Promise<boolean> {
+  void _minutes;
   const { rows } = await query(
     `SELECT 1 FROM missions
      WHERE child_id = $1
        AND trigger_reason = 'risky_content'
-       AND created_at > NOW() - ($2::text || ' minutes')::interval
+       AND status = 'pending'
+       AND expires_at > NOW()
      LIMIT 1`,
-    [childId, String(minutes)],
+    [childId],
   );
   return rows.length > 0;
 }

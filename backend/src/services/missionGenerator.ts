@@ -6,11 +6,17 @@ import {
   getAdaptiveRiskThreshold,
   getChildAge,
   getChildMissionHistory,
+  getChildParentId,
   getChildRecentScores,
   getCumulativeRisk,
   countRiskyMissionsLast24h,
   hasRecentRiskyMission,
 } from './missionHelpers';
+import {
+  getActiveCustomMissions,
+  type CustomMissionCandidate,
+} from './customMissionService';
+import { enrichQuizMetadata } from './quizService';
 
 export type MissionType = 'real_world' | 'quiz' | 'minigame' | 'cognitive';
 
@@ -150,7 +156,14 @@ export const MISSION_TEMPLATES: Record<string, MissionTemplate> = {
 };
 
 const RISK_CATEGORY_TEMPLATES: Record<string, string[]> = {
-  adult: ['digital_detox', 'educational_relationships'],
+  adult: [
+    'quiz_safety',
+    'conflict_resolution_quiz',
+    'tictactoe',
+    'nback',
+    'digital_detox',
+    'educational_relationships',
+  ],
   violent: ['kindness_mission', 'conflict_resolution_quiz'],
   toxic: ['positive_communication', 'empathy_exercise'],
   dangerous_challenge: ['safety_talk', 'parent_discussion'],
@@ -181,15 +194,73 @@ export interface PickMissionInput {
   category?: string;
   age: number | null;
   recentTemplateKeys: string[];
+  /** Parent-defined real-world missions merged into selection pools. */
+  customMissions?: CustomMissionCandidate[];
 }
+
+type PickedCandidate = { key: string; custom?: CustomMissionCandidate };
 
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function avoidRecent(keys: string[], candidates: string[]): string {
-  const fresh = candidates.filter((key) => !keys.includes(key));
-  return pickRandom(fresh.length > 0 ? fresh : candidates);
+function extendWithCustomMissions(
+  keys: string[],
+  customMissions?: CustomMissionCandidate[],
+): PickedCandidate[] {
+  const items: PickedCandidate[] = keys.map((key) => ({ key }));
+  if (!customMissions?.length) {
+    return items;
+  }
+  return [
+    ...items,
+    ...customMissions.map((c) => ({
+      key: `custom:${c.id}`,
+      custom: c,
+    })),
+  ];
+}
+
+function pickCandidate(
+  keys: string[],
+  recent: string[],
+  customMissions?: CustomMissionCandidate[],
+): PickedCandidate {
+  const pool = extendWithCustomMissions(keys, customMissions);
+  const fresh = pool.filter((p) => !recent.includes(p.key));
+  return pickRandom(fresh.length > 0 ? fresh : pool);
+}
+
+function buildTemplateFromPick(
+  picked: PickedCandidate,
+  age: number | null,
+): { key: string; template: MissionTemplate } {
+  if (picked.custom) {
+    return {
+      key: picked.key,
+      template: {
+        type: 'real_world',
+        title: picked.custom.title,
+        description: picked.custom.description,
+        points: picked.custom.points,
+        metadata: {
+          action: 'custom',
+          customMissionId: picked.custom.id,
+        },
+      },
+    };
+  }
+
+  let key = applyAgeRules(picked.key, age);
+
+  if (age != null && age >= 13 && key === 'nback') {
+    const pickedNback = cloneTemplate('nback');
+    pickedNback.template.metadata = { ...pickedNback.template.metadata, level: 3 };
+    pickedNback.template.description = 'Play N-back (level 3)';
+    return pickedNback;
+  }
+
+  return cloneTemplate(key);
 }
 
 function applyAgeRules(templateKey: string, age: number | null): string {
@@ -233,12 +304,21 @@ export function pickMissionTemplate(input: PickMissionInput): {
   template: MissionTemplate;
 } {
   const recent = input.recentTemplateKeys;
-  let key: string;
+  const custom = input.customMissions;
+  let picked: PickedCandidate;
 
   if (input.triggerReason === 'high_addiction' || input.addictionScore > 70) {
-    key = avoidRecent(recent, ['nback', 'tower', 'digital_detox']);
+    picked = pickCandidate(
+      ['nback', 'tower', 'digital_detox'],
+      recent,
+      custom,
+    );
   } else if (input.triggerReason === 'low_wellbeing' || input.wellbeingScore < 40) {
-    key = avoidRecent(recent, ['physical_activity', 'family_interaction']);
+    picked = pickCandidate(
+      ['physical_activity', 'family_interaction'],
+      recent,
+      custom,
+    );
   } else if (
     input.triggerReason === 'risky_content' ||
     (input.combinedRiskScore != null && input.combinedRiskScore > 70)
@@ -246,26 +326,16 @@ export function pickMissionTemplate(input: PickMissionInput): {
     const normalized = normalizeRiskCategory(input.category);
     const templateKeys =
       RISK_CATEGORY_TEMPLATES[normalized] ?? RISK_CATEGORY_TEMPLATES.default;
-    key = avoidRecent(recent, templateKeys);
+    picked = pickCandidate(templateKeys, recent, custom);
   } else {
-    key = avoidRecent(recent, [
-      'physical_activity',
-      'family_interaction',
-      'tictactoe',
-      'sudoku',
-    ]);
+    picked = pickCandidate(
+      ['physical_activity', 'family_interaction', 'tictactoe', 'sudoku'],
+      recent,
+      custom,
+    );
   }
 
-  key = applyAgeRules(key, input.age);
-
-  if (input.age != null && input.age >= 13 && key === 'nback') {
-    const picked = cloneTemplate('nback');
-    picked.template.metadata = { ...picked.template.metadata, level: 3 };
-    picked.template.description = 'Play N-back (level 3)';
-    return picked;
-  }
-
-  return cloneTemplate(key);
+  return buildTemplateFromPick(picked, input.age);
 }
 
 export interface MissionGenerationResult {
@@ -314,16 +384,21 @@ export async function generateMissionForChild(
     return { created: false, reason: 'pending_limit_reached' };
   }
 
-  const [age, recentScores, history] = await Promise.all([
+  const [age, recentScores, history, parentId] = await Promise.all([
     getChildAge(childId),
     getChildRecentScores(childId),
     getChildMissionHistory(childId, 5),
+    getChildParentId(childId),
   ]);
+
+  const customMissions = parentId
+    ? await getActiveCustomMissions(parentId)
+    : [];
 
   const addictionScore = recentScores?.addictionScore ?? 0;
   const wellbeingScore = recentScores?.wellbeingScore ?? 50;
 
-  const { key, template } = pickMissionTemplate({
+  const { key, template: pickedTemplate } = pickMissionTemplate({
     triggerReason: trigger.type,
     triggerScore: trigger.score,
     addictionScore,
@@ -332,15 +407,22 @@ export async function generateMissionForChild(
     category: context?.category,
     age,
     recentTemplateKeys: extractTemplateKeys(history),
+    customMissions,
   });
 
+  let template =
+    pickedTemplate.type === 'quiz'
+      ? await enrichQuizMetadata(key, pickedTemplate, age)
+      : pickedTemplate;
+
   const basePoints = template.points;
+  const templateKey = key;
   const multiplier = context?.escalationMultiplier ?? 1;
   const finalPoints = multiplier > 1 ? Math.ceil(basePoints * multiplier) : basePoints;
 
   const metadata = {
     type: template.type,
-    templateKey: key,
+    templateKey,
     triggerScore: trigger.score,
     triggerCategory: context?.category ?? null,
     basePoints,

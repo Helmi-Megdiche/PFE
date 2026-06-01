@@ -638,6 +638,10 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | POST | `/api/missions/:missionId/reject` | Parent | Reject pending approval → `expired` |
 | POST | `/api/missions/:missionId/abandon` | Child | Escape penalty (−10 pts, `failed`) |
 | POST | `/api/bonus/child/:childId` | Parent | Award bonus points |
+| GET | `/api/custom-missions` | Parent | List custom real-world missions |
+| POST | `/api/custom-missions` | Parent | Create custom mission |
+| PUT | `/api/custom-missions/:id` | Parent | Update custom mission |
+| DELETE | `/api/custom-missions/:id` | Parent | Delete custom mission |
 | GET | `/api/rewards` | Parent / Child | List rewards (child sees unclaimed only) |
 | POST | `/api/rewards` | Parent | Create reward |
 | PUT | `/api/rewards/:rewardId` | Parent | Update reward |
@@ -646,11 +650,11 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | GET | `/api/badges` | Any | All badges; `?childId=` adds earned status |
 | GET | `/api/badges/child/:childId` | Child / Parent | Earned badges |
 
-**Migrations:** `007`–`010` — run `npm run db:migrate` from `backend/` (`010` adds `pending_approval`, `failed`, escape columns).
+**Migrations:** `007`–`012` — run `npm run db:migrate` from `backend/` (`010` parent approval/escape; `011` quiz bank; `012` custom missions).
 
 **Screen events:** `POST /api/screen-events` response includes `newMission` when a mission is created or **re-surfaced** during cooldown (`missionGeneration` explains `cooldown_active`, etc.). Mobile calls `presentMissionFromCapture()` → native overlay or notification + `MissionScreen`.
 
-**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`, `missionsApproval.test.ts`, `resurface.test.ts` (re-surface point cap). Mobile game logic: `MobileApp/__tests__/gameLogic.test.ts`.
+**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`, `missionsApproval.test.ts`, `resurface.test.ts`, `quizService.test.ts`, `customMissionService.test.ts`. Mobile game logic: `MobileApp/__tests__/gameLogic.test.ts`.
 
 ### Gamification frontend (Sprint 5)
 
@@ -704,12 +708,37 @@ Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps
 
 ---
 
-## Next Steps (post Sprint 5)
+## Sprint 5.5 – Dynamic quiz bank & custom missions
+
+| Feature | Details |
+|---------|---------|
+| **Quiz bank** | Table `quiz_questions` (`011_quiz_questions.sql`) — types `safety`, `conflict`, `empathy`; filtered by child age (`age_min` / `age_max`). `quizService.getRandomQuestions` + `enrichQuizMetadata` attach questions to quiz missions at generation time. Mobile `QuizScreen` reads `metadata.questions` (falls back to `quizBank.ts` if empty). |
+| **Custom missions** | Table `custom_missions` (`012_custom_missions.sql`) — parent CRUD via `GET/POST/PUT/DELETE /api/custom-missions`. Active missions are merged into real-world template pools in `pickMissionTemplate`. |
+| **Dashboard** | **Custom real-world missions** section on [`demo_dashboard.html`](demo_dashboard.html) and [`backend/public/demo.html`](backend/public/demo.html) — create, edit, delete. |
+| **OCR false positives** | `benignRiskContext` filters `nsfw` / `adult` on SafeSearch/Fiverr parental UI and parent-dashboard OCR; wired in mobile + backend `keywordFilter`. |
+| **Risky cooldown** | New risky missions are blocked only while a **pending** risky mission exists (completed missions no longer suppress the next capture). Re-surface still bumps pending missions during cooldown. |
+| **Adult mission pool** | `adult` category includes quizzes and minigames, not only real-world templates. |
+| **Overlay → game** | Quiz / minigame / cognitive overlay primary button emits `start` and opens `MissionScreen` (no API auto-complete from overlay). |
+
+**Add quiz questions (SQL example):**
+
+```sql
+INSERT INTO quiz_questions (quiz_type, question_text, options, correct_answer_index, age_min, age_max)
+VALUES ('safety', 'Your question?', ARRAY['Wrong', 'Correct', 'Wrong2', 'Wrong3'], 1, 6, 12);
+```
+
+**Migrations:** run `npm run db:migrate` from `backend/` after pulling (applies `011` and `012`).
+
+**Tests:** `quizService.test.ts`, `customMissionService.test.ts`, `benignRiskContext.test.ts` (mobile + backend), extended `missionGenerator.test.ts` and `missionHelpers.test.ts`.
+
+---
+
+## Next Steps (post Sprint 5.5)
 
 1. **Server-side game stats** – persist `child_game_stats` so smart difficulty follows the child across devices.
 2. **Parent dashboard polish** – multi-child list, mission history charts.
 3. **FCM push** (optional) – replace dashboard polling for approvals.
-4. **Expand quiz bank** – more questions per category or author them in mission metadata.
+4. **Quiz admin UI** – web form to add/edit questions without raw SQL.
 
 ---
 

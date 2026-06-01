@@ -70,12 +70,12 @@ describe('hasRecentRiskyMission', () => {
     jest.clearAllMocks();
   });
 
-  it('returns true when a recent risky mission exists', async () => {
+  it('returns true when a pending risky mission exists', async () => {
     mockedQuery.mockResolvedValue({ rows: [{ '?column?': 1 }] });
     await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(true);
     expect(mockedQuery).toHaveBeenCalledWith(
-      expect.stringContaining("($2::text || ' minutes')::interval"),
-      ['child-1', '15'],
+      expect.stringContaining("status = 'pending'"),
+      ['child-1'],
     );
   });
 
@@ -84,9 +84,9 @@ describe('hasRecentRiskyMission', () => {
     await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(false);
   });
 
-  it('passes custom minutes as parameterized interval', async () => {
+  it('ignores minutes parameter (cooldown is pending-only)', async () => {
     mockedQuery.mockResolvedValue({ rows: [] });
     await hasRecentRiskyMission('child-1', 30);
-    expect(mockedQuery).toHaveBeenCalledWith(expect.any(String), ['child-1', '30']);
+    expect(mockedQuery).toHaveBeenCalledWith(expect.any(String), ['child-1']);
   });
 });

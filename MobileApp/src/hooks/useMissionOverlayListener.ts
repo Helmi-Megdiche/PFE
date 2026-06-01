@@ -33,6 +33,19 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
 
   scLog('Overlay mission action', event);
 
+  if (event.action === 'start') {
+    await hideMissionOverlay();
+    navigateToMissionScreen({
+      missionId: event.missionId,
+      title: String(metadata.overlayTitle ?? 'Mission'),
+      description: String(metadata.overlayDescription ?? ''),
+      points: Number(metadata.overlayPoints ?? 0),
+      missionType: event.missionType,
+      metadata,
+    });
+    return;
+  }
+
   try {
     const result = await executeMissionAction(
       event.missionId,

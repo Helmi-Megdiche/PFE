@@ -22,6 +22,15 @@ const UI_PHRASES: readonly string[] = [
   'view insights',
   'share to',
   'write a comment',
+  'safesearch',
+  'safe search',
+  'désactiver',
+  'desactiver',
+  'fiverr',
+  'bonus points',
+  'pending approval',
+  'custom mission',
+  'mission history',
 ];
 
 /** Status-bar / in-app clock (e.g. 4:18, 3:51 PM). */

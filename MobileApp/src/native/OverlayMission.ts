@@ -6,7 +6,7 @@ export const OVERLAY_MISSION_EVENTS = {
 
 export interface OverlayMissionActionEvent {
   missionId: string;
-  action: 'complete' | 'abandon';
+  action: 'start' | 'complete' | 'abandon';
   missionType: string;
   metadataJson: string;
 }

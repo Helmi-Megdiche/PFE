@@ -27,9 +27,18 @@ public final class OverlayWindowHelper {
   private OverlayWindowHelper() {}
 
   public interface ActionListener {
+    /** Opens the in-app game/quiz screen (quiz, minigame, cognitive). */
+    void onStart(String missionId, String missionType, String metadataJson);
+
     void onComplete(String missionId, String missionType, String metadataJson);
 
     void onAbandon(String missionId, String missionType, String metadataJson);
+  }
+
+  private static boolean isPlayableMissionType(String missionType) {
+    return "quiz".equals(missionType)
+        || "minigame".equals(missionType)
+        || "cognitive".equals(missionType);
   }
 
   public static boolean canDrawOverlay(Context context) {
@@ -85,7 +94,11 @@ public final class OverlayWindowHelper {
           }
           actionSent[0] = true;
           setButtonsEnabled(completeBtn, laterBtn, false);
-          listener.onComplete(missionId, missionType, metadataJson);
+          if (isPlayableMissionType(missionType)) {
+            listener.onStart(missionId, missionType, metadataJson);
+          } else {
+            listener.onComplete(missionId, missionType, metadataJson);
+          }
         });
 
     laterBtn.setOnClickListener(
@@ -154,11 +167,11 @@ public final class OverlayWindowHelper {
       case "real_world":
         return R.string.overlay_mission_complete_real_world;
       case "quiz":
-        return R.string.overlay_mission_complete_quiz;
+        return R.string.overlay_mission_start_quiz;
       case "cognitive":
-        return R.string.overlay_mission_complete_cognitive;
+        return R.string.overlay_mission_start_cognitive;
       case "minigame":
-        return R.string.overlay_mission_complete_minigame;
+        return R.string.overlay_mission_start_minigame;
       default:
         return R.string.overlay_mission_complete_default;
     }

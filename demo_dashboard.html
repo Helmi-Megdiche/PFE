@@ -312,6 +312,50 @@
         </div>
       </section>
 
+      <!-- Sprint 5.5: Custom missions -->
+      <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+        <h2 class="text-lg font-semibold mb-1">Custom real-world missions</h2>
+        <p class="text-xs text-slate-500 mb-4">
+          Missions you create here are mixed into the child&apos;s real-world mission pool (alongside built-in templates).
+        </p>
+        <form id="customMissionForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end mb-4">
+          <label class="block sm:col-span-1">
+            <span class="text-xs text-slate-500">Title</span>
+            <input id="customTitle" type="text" required placeholder="Tidy your room"
+              class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+          </label>
+          <label class="block sm:col-span-1 lg:col-span-2">
+            <span class="text-xs text-slate-500">Description</span>
+            <input id="customDesc" type="text" required placeholder="Put toys away and make the bed"
+              class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+          </label>
+          <label class="block">
+            <span class="text-xs text-slate-500">Points</span>
+            <input id="customPoints" type="number" min="5" max="500" value="20" required
+              class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+          </label>
+          <button type="submit"
+            class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 sm:col-span-2 lg:col-span-1">
+            Add mission
+          </button>
+        </form>
+        <div class="overflow-x-auto rounded-lg border border-slate-200">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 text-slate-600">
+              <tr>
+                <th class="px-3 py-2 text-left">Title</th>
+                <th class="px-3 py-2 text-left">Description</th>
+                <th class="px-3 py-2 text-left">Points</th>
+                <th class="px-3 py-2 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="customMissionsBody">
+              <tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Activity log -->
       <section class="bg-white rounded-xl shadow-sm border p-4">
         <h2 class="text-lg font-semibold mb-3">API activity (5 min)</h2>
@@ -861,17 +905,123 @@
         }
       });
 
+      async function fetchCustomMissions() {
+        const res = await fetchWithAuth('/custom-missions');
+        if (!res.ok) throw new Error('Custom missions: HTTP ' + res.status);
+        const data = await res.json();
+        return data.missions || [];
+      }
+
+      function renderCustomMissions(missions) {
+        const tbody = $('customMissionsBody');
+        if (!missions.length) {
+          tbody.innerHTML =
+            '<tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">No custom missions yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = missions
+          .map(
+            (m) => `
+          <tr class="border-t border-slate-100" data-mission-id="${m.id}">
+            <td class="px-3 py-2 font-medium">${escapeHtml(m.title)}</td>
+            <td class="px-3 py-2 text-slate-600">${escapeHtml(m.description)}</td>
+            <td class="px-3 py-2">${m.points}</td>
+            <td class="px-3 py-2 whitespace-nowrap">
+              <button type="button" data-edit-custom="${m.id}"
+                class="px-2 py-1 text-xs bg-slate-200 rounded mr-1">Edit</button>
+              <button type="button" data-del-custom="${m.id}"
+                class="px-2 py-1 text-xs bg-red-500 text-white rounded">Delete</button>
+            </td>
+          </tr>`,
+          )
+          .join('');
+
+        tbody.querySelectorAll('[data-edit-custom]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-edit-custom');
+            const row = missions.find((x) => x.id === id);
+            if (!row) return;
+            const title = prompt('Title', row.title);
+            if (title == null) return;
+            const description = prompt('Description', row.description);
+            if (description == null) return;
+            const pointsStr = prompt('Points (5–500)', String(row.points));
+            if (pointsStr == null) return;
+            const points = parseInt(pointsStr, 10);
+            if (!points || points < 5) {
+              alert('Enter points between 5 and 500');
+              return;
+            }
+            void (async () => {
+              const res = await fetchWithAuth(`/custom-missions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, description, points }),
+              });
+              if (res.ok) await refreshGamification();
+              else {
+                const err = await res.json().catch(() => ({}));
+                alert('Update failed: ' + (err.error || res.status));
+              }
+            })();
+          });
+        });
+
+        tbody.querySelectorAll('[data-del-custom]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-del-custom');
+            if (!confirm('Delete this custom mission?')) return;
+            const res = await fetchWithAuth(`/custom-missions/${id}`, { method: 'DELETE' });
+            if (res.ok) await refreshGamification();
+            else {
+              const err = await res.json().catch(() => ({}));
+              alert('Delete failed: ' + (err.error || res.status));
+            }
+          });
+        });
+      }
+
+      $('customMissionForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const title = $('customTitle').value.trim();
+        const description = $('customDesc').value.trim();
+        const points = parseInt($('customPoints').value, 10);
+        if (!title || !description || !points || points < 5) {
+          alert('Fill in title, description, and points (5–500)');
+          return;
+        }
+        try {
+          const res = await fetchWithAuth('/custom-missions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description, points }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'HTTP ' + res.status);
+          }
+          $('customTitle').value = '';
+          $('customDesc').value = '';
+          await refreshGamification();
+          showBanner('ok', 'Custom mission created.');
+        } catch (err) {
+          alert(err.message || String(err));
+        }
+      });
+
       async function refreshGamification() {
         try {
-          const [missions, points, rewards] = await Promise.all([
+          const [missions, points, rewards, customMissions] = await Promise.all([
             fetchMissions(),
             fetchChildPoints(),
             fetchRewards().catch(() => []),
+            fetchCustomMissions().catch(() => []),
           ]);
           renderPendingApprovals(missions);
           renderEscapeLog(missions);
           renderMissionHistory(missions);
           renderRewards(rewards);
+          renderCustomMissions(customMissions);
           $('bonusCurrentPoints').textContent = String(points.totalPoints ?? '—');
           checkBrowserNotifications(missions);
           return missions;
