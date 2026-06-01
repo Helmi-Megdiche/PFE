@@ -12,7 +12,10 @@ import {
 import { query } from '../db/pool';
 import { logger } from '../utils/logger';
 import { generateMissionFromRisk } from '../services/missionGenerator';
-import { getActivePendingMission } from '../services/missionHelpers';
+import {
+  bumpResurfacedMission,
+  getActivePendingMission,
+} from '../services/missionHelpers';
 
 const router = Router();
 
@@ -142,13 +145,14 @@ router.post(
           ) {
             const active = await getActivePendingMission(childId);
             if (active) {
-              const meta = (active.metadata ?? {}) as Record<string, unknown>;
+              const bumped = await bumpResurfacedMission(active);
+              const meta = (bumped.metadata ?? {}) as Record<string, unknown>;
               newMission = {
-                id: active.id,
-                title: active.title,
-                description: active.description,
-                points: active.points,
-                status: active.status,
+                id: bumped.id,
+                title: bumped.title,
+                description: bumped.description,
+                points: bumped.points,
+                status: bumped.status,
                 type: meta.type ?? 'real_world',
                 metadata: meta,
                 reSurfaced: true,

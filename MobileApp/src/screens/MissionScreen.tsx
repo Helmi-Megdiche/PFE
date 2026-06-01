@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -11,13 +11,21 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
-import { executeMissionAction } from '../missions/missionCompletion';
+import {
+  abandonMission,
+  completeMission,
+  type MissionCompletionPayload,
+} from '../services/missionsApi';
+import { resolveGameComponent } from './missions/gameRegistry';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MissionScreen'>;
 
 export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
   const { missionId, title, description, points, missionType, metadata } = route.params;
-  const abandonedRef = useRef(false);
+  const settledRef = useRef(false); // completed OR abandoned — no further actions
+  const [submitting, setSubmitting] = useState(false);
+
+  const GameComponent = resolveGameComponent(missionType, metadata);
 
   useEffect(() => {
     navigation.getParent()?.setOptions({ tabBarStyle: { display: 'none' } });
@@ -26,30 +34,29 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
     };
   }, [navigation]);
 
+  // Disable hardware back; child must finish or explicitly quit.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
     return () => sub.remove();
   }, []);
 
   const handleAbandon = useCallback(async () => {
-    if (abandonedRef.current) {
+    if (settledRef.current) {
       return;
     }
-    abandonedRef.current = true;
+    settledRef.current = true;
     try {
-      const res = await executeMissionAction(missionId, missionType, metadata, 'abandon');
-      Alert.alert('Mission escaped', res.message);
+      const res = await abandonMission(missionId);
+      Alert.alert('Mission escaped', `Penalty: -${res.penalty} points. Total: ${res.totalPoints}`);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : String(err));
     } finally {
       navigation.goBack();
     }
-  }, [missionId, missionType, metadata, navigation]);
+  }, [missionId, navigation]);
 
+  // Escape penalty when the app is sent to background during an active mission.
   useEffect(() => {
-    // Escape penalty when leaving app (Home / app switch).
-    // Known limitation: force-quit does not fire background — no penalty applied.
-    // Future: server-side inactivity timeout → auto-fail with penalty.
     const appStateRef = { current: AppState.currentState };
     const sub = AppState.addEventListener('change', (next) => {
       if (
@@ -63,67 +70,79 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
     return () => sub.remove();
   }, [handleAbandon]);
 
-  const finishAndExit = (message: string) => {
-    Alert.alert('Mission', message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+  const confirmQuit = () => {
+    Alert.alert(
+      'Leave mission?',
+      'If you leave now, you will lose 10 points.',
+      [
+        { text: 'Keep playing', style: 'cancel' },
+        { text: 'Leave (-10)', style: 'destructive', onPress: () => void handleAbandon() },
+      ],
+    );
   };
 
-  const onMissionComplete = async () => {
-    try {
-      const res = await executeMissionAction(missionId, missionType, metadata, 'complete');
-      finishAndExit(res.message);
-    } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const renderActions = () => {
-    switch (missionType) {
-      case 'real_world':
-        return (
-          <Pressable style={styles.primaryBtn} onPress={() => void onMissionComplete()}>
-            <Text style={styles.primaryBtnText}>Mark as done</Text>
-          </Pressable>
-        );
-      case 'quiz':
-        return (
-          <Pressable style={styles.primaryBtn} onPress={() => void onMissionComplete()}>
-            <Text style={styles.primaryBtnText}>Complete quiz (demo)</Text>
-          </Pressable>
-        );
-      case 'cognitive':
-        return (
-          <Pressable style={styles.primaryBtn} onPress={() => void onMissionComplete()}>
-            <Text style={styles.primaryBtnText}>I did it (demo)</Text>
-          </Pressable>
-        );
-      case 'minigame':
-        return (
-          <Pressable style={styles.primaryBtn} onPress={() => void onMissionComplete()}>
-            <Text style={styles.primaryBtnText}>Mark as won</Text>
-          </Pressable>
-        );
-      default:
-        return (
-          <Pressable style={styles.primaryBtn} onPress={() => void onMissionComplete()}>
-            <Text style={styles.primaryBtnText}>Complete</Text>
-          </Pressable>
-        );
-    }
-  };
+  const submitCompletion = useCallback(
+    async (payload: MissionCompletionPayload) => {
+      if (settledRef.current || submitting) {
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const res = await completeMission(missionId, payload);
+        settledRef.current = true;
+        const awarded = res.points ?? res.pointsAwarded ?? 0;
+        const message =
+          res.status === 'pending_approval'
+            ? res.message ?? 'Waiting for parent approval'
+            : `+${awarded} points! Total: ${res.totalPoints}`;
+        Alert.alert('Mission', message, [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      } catch (err) {
+        setSubmitting(false);
+        Alert.alert('Error', err instanceof Error ? err.message : String(err));
+      }
+    },
+    [missionId, navigation, submitting],
+  );
 
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.badge}>Active mission</Text>
+        <View style={styles.header}>
+          <Text style={styles.badge}>ACTIVE MISSION</Text>
+          <Pressable onPress={confirmQuit} hitSlop={12}>
+            <Text style={styles.quit}>Quit</Text>
+          </Pressable>
+        </View>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.desc}>{description}</Text>
         <Text style={styles.meta}>
           {points} points · {missionType}
         </Text>
+
+        <View style={styles.gameArea}>
+          {GameComponent ? (
+            <GameComponent
+              metadata={metadata}
+              points={points}
+              age={null}
+              onComplete={(payload) => void submitCompletion(payload)}
+              onQuit={confirmQuit}
+            />
+          ) : (
+            <Pressable
+              style={styles.primaryBtn}
+              disabled={submitting}
+              onPress={() => void submitCompletion({ confirmed: true })}>
+              <Text style={styles.primaryBtnText}>Mark as done</Text>
+            </Pressable>
+          )}
+        </View>
+
         <Text style={styles.warning}>
-          Back is disabled. Leaving the app (Home) applies a -10 point escape penalty.
+          Leaving the app or quitting applies a -10 point escape penalty.
         </Text>
-        {renderActions()}
       </ScrollView>
     </View>
   );
@@ -131,16 +150,20 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0f172a' },
-  content: { padding: 24, paddingTop: 48 },
+  content: { padding: 20, paddingTop: 44, paddingBottom: 40 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   badge: { color: '#fbbf24', fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  quit: { color: '#f87171', fontWeight: '700' },
   title: { color: '#fff', fontSize: 24, fontWeight: '700', marginTop: 8 },
-  desc: { color: '#cbd5e1', fontSize: 16, marginTop: 12, lineHeight: 24 },
-  meta: { color: '#94a3b8', marginTop: 16 },
-  warning: { color: '#f87171', fontSize: 13, marginTop: 20, lineHeight: 20 },
+  desc: { color: '#cbd5e1', fontSize: 15, marginTop: 8, lineHeight: 22 },
+  meta: { color: '#94a3b8', marginTop: 12 },
+  gameArea: { marginTop: 24, alignItems: 'center' },
+  warning: { color: '#f87171', fontSize: 13, marginTop: 28, lineHeight: 20, textAlign: 'center' },
   primaryBtn: {
-    marginTop: 32,
+    marginTop: 8,
     backgroundColor: '#2563eb',
     paddingVertical: 16,
+    paddingHorizontal: 40,
     borderRadius: 10,
     alignItems: 'center',
   },

@@ -106,6 +106,40 @@ export async function getActivePendingMission(
   return rows[0] ?? null;
 }
 
+/** Compute the resurface-bumped point value: +5 per resurface, capped at +50% of base. */
+export function computeResurfacedPoints(
+  currentPoints: number,
+  basePoints: number,
+): number {
+  const cap = Math.ceil(basePoints * 1.5);
+  return Math.min(cap, currentPoints + 5);
+}
+
+/**
+ * When a mission is re-presented during cooldown: extend expiry by 24h and
+ * increase points (+5, capped at +50% of original base). Returns updated row.
+ */
+export async function bumpResurfacedMission(
+  mission: ActiveMissionRow,
+): Promise<ActiveMissionRow> {
+  const meta = (mission.metadata ?? {}) as Record<string, unknown>;
+  const basePoints = Number(meta.basePoints ?? mission.points);
+  const newPoints = computeResurfacedPoints(mission.points, basePoints);
+  const resurfaceCount = Number(meta.resurfaceCount ?? 0) + 1;
+  const newMeta = { ...meta, resurfaceCount };
+
+  await query(
+    `UPDATE missions
+     SET points = $2,
+         metadata = $3::jsonb,
+         expires_at = NOW() + INTERVAL '24 hours'
+     WHERE id = $1`,
+    [mission.id, newPoints, JSON.stringify(newMeta)],
+  );
+
+  return { ...mission, points: newPoints, metadata: newMeta };
+}
+
 export async function countPendingMissions(childId: string): Promise<number> {
   const { rows } = await query<{ count: string }>(
     `SELECT COUNT(*)::text AS count

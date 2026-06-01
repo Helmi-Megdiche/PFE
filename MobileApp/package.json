@@ -45,5 +45,15 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "jest": {
+    "preset": "react-native",
+    "setupFilesAfterEnv": ["./jest.setup.js"],
+    "transformIgnorePatterns": [
+      "node_modules/(?!(@react-native|react-native|@react-navigation|@react-native-async-storage|@react-native-ml-kit)/)"
+    ],
+    "moduleNameMapper": {
+      "\\.(png|jpg|jpeg|gif|webp|svg)$": "<rootDir>/__mocks__/fileMock.js"
+    }
   }
 }

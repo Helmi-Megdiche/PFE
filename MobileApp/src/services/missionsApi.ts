@@ -76,10 +76,13 @@ export function completeMission(
   return api.post<CompleteMissionResponse>(`/missions/${missionId}/complete`, body);
 }
 
-export function abandonMission(missionId: string): Promise<{
+export function abandonMission(
+  missionId: string,
+  reason = 'user_left',
+): Promise<{
   success: boolean;
   penalty: number;
   totalPoints: number;
 }> {
-  return api.post(`/missions/${missionId}/abandon`, {});
+  return api.post(`/missions/${missionId}/abandon`, { reason });
 }

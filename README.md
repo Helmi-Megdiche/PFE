@@ -585,7 +585,7 @@ When risk or usage scores cross thresholds, the backend generates age-adapted mi
 
 **Skip reasons:** `below_risk_threshold`, `cooldown_active`, `pending_limit_reached`.
 
-Rules: max **3 pending** missions per child; missions expire after **24 hours**; **15-minute cooldown** between risky-content missions; age from `children.birth_year` adapts template difficulty.
+Rules: max **3 pending** missions per child; missions expire after **24 hours**; cooldown between risky-content missions is `MISSION_RISK_COOLDOWN_MINUTES` (dev **2 min**, prod **15 min**); age from `children.birth_year` adapts template difficulty.
 
 ### Smart mission generation (Sprint 4.5)
 
@@ -606,11 +606,24 @@ Addiction/wellbeing daily-score triggers still take priority inside `pickMission
 | Type | Examples | Completion payload |
 |------|----------|-------------------|
 | `real_world` | Jumping jacks, family board game, screen-free break | `{ confirmed: true }` |
-| `quiz` | Online safety quiz | `{ answers: ['A','B','A'] }` — pass if ≥2/3 correct |
-| `minigame` | Tic-tac-toe, mini sudoku | `{ won: true }` or `{ completed: true }` |
+| `quiz` | Online safety / conflict / empathy quiz | `{ answers: ['A','B','A'] }` — pass if ≥2/3 correct |
+| `minigame` | Tic-tac-toe (AI), mini sudoku (4×4) | `{ won: true }` or `{ completed: true }` |
 | `cognitive` | N-back, reaction time, Tower of Hanoi | `{ exerciseScore }`, `{ reactionTimeMs }`, `{ moves }` |
 
 Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full points; Hanoi optimal (7 moves for 3 disks) = base + 10 bonus.
+
+**Playable mini-games (Sprint 5):** each mission now renders a real interactive component in `MobileApp/src/screens/missions/` instead of a demo button:
+
+| Game | Component | Notes |
+|------|-----------|-------|
+| Tic-Tac-Toe | `TicTacToeGame.tsx` | Child = X; AI = O with `easy` (random), `medium` (win/block + center), `hard` (minimax, unbeatable) |
+| Mini Sudoku 4×4 | `SudokuGame.tsx` | Pre-validated solutions; clue count by difficulty (easy 10 / medium 8 / hard 6) |
+| N-back | `NBackGame.tsx` | 20 trials, 1.8s/step; level from `metadata.level`; accuracy 0–100; level rises after ≥80% |
+| Reaction time | `ReactionGame.tsx` | Grey→green after random delay; "too soon" guard; average of 3 attempts |
+| Tower of Hanoi | `TowerOfHanoiGame.tsx` | Tap-to-select pegs with legality checks; bonus for optimal 7 moves |
+| Quiz | `QuizScreen.tsx` | One question at a time; questions from `metadata.questions` or built-in bank (`quizBank.ts`); selected option letters sent as `answers` |
+
+Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-tested in `__tests__/gameLogic.test.ts`).
 
 ### Backend API (JWT required except `/health`, `/dev/*`, `/debug/*`)
 
@@ -637,7 +650,7 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 
 **Screen events:** `POST /api/screen-events` response includes `newMission` when a mission is created or **re-surfaced** during cooldown (`missionGeneration` explains `cooldown_active`, etc.). Mobile calls `presentMissionFromCapture()` → native overlay or notification + `MissionScreen`.
 
-**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`, `missionsApproval.test.ts`.
+**Tests:** `missionGenerator.test.ts`, `missionHelpers.test.ts`, `gamificationService.test.ts`, `missionCompletion.test.ts`, `missionsApproval.test.ts`, `resurface.test.ts` (re-surface point cap). Mobile game logic: `MobileApp/__tests__/gameLogic.test.ts`.
 
 ### Gamification frontend (Sprint 5)
 
@@ -649,20 +662,22 @@ Cognitive scoring: N-back proportional to `%` correct; reaction ≤300ms full po
 | **Escape penalty** | Home / app switch during active mission → `POST .../abandon`, −10 points |
 | **Bonus points** | Parent awards via dashboard → `POST /api/bonus/child/:childId` |
 | **Auto-mission** | `newMission` in screen-event response → **SYSTEM_ALERT_WINDOW overlay** on Android (blocks Instagram/other apps); fallback: notification + `MissionScreen` |
+| **Smart difficulty** | Age baseline (`<10` easy, `≥13` hard) + on-device performance store (`gameStats.ts`); strong runs escalate one step; N-back level persists across missions |
 | **Points refresh** | Pull on focus / pull-to-refresh; optional 60s poll on Missions & Profile (no push) |
 
-**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications. Approve/reject use `fetchWithAuth(path, { method: 'POST' })` so parent actions reach the API.
+**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications. Sections: **Pending approvals** (approve/reject), **Bonus points**, **Escape log**, **Rewards management** (create/delete), and **Mission history** (completed / pending / failed / expired). All actions use `fetchWithAuth(path, { method, body })` with the parent JWT.
 
 **Mission overlay (Android):** grant **Settings → Display over other apps** for the child app. Native `OverlayService` shows a full-screen card on Chrome/Instagram/etc.; see [`MobileApp/android/NATIVE_SETUP.md`](MobileApp/android/NATIVE_SETUP.md). **Rebuild required** after native overlay changes (`npm run android`).
 
 **Limitations (Sprint 5):**
 
-- Quiz and cognitive missions use **placeholder validation** on mobile (full points for demo). Production needs a question bank and real scoring.
-- **Escape penalty** applies when `AppState` goes to background (Home). **Force-closing the app does not trigger a penalty.**
+- Quiz/cognitive games are **fully playable** with real scoring. The quiz question bank (`quizBank.ts`) is curated for the existing categories; production should expand it and/or store questions in mission metadata.
+- **Smart difficulty** is stored **on-device** (`AsyncStorage`) rather than a server `child_game_stats` table — adaptive per device; server-side persistence is future work.
+- **Escape penalty** applies when `AppState` goes to background (Home) **and** when the child quits/leaves `MissionScreen`. **Force-closing the app does not trigger a penalty.**
 - **Future:** server-side inactivity timeout to auto-fail abandoned missions.
-- **No FCM** — parent uses dashboard browser notifications (30s poll).
+- **No FCM** — parent uses dashboard browser notifications (30s poll). FCM wiring is documented as optional; the mobile app already uses a native high-priority notification fallback for missions, so no extra RN push package is required.
 - **Overlay permission** — child must grant **Display over other apps** (`Settings.canDrawOverlays`) for auto-block on third-party apps. Without it, a high-priority notification opens `MissionScreen` when the user returns to SafeGuard.
-- **Risky-mission cooldown** — after a risky-content mission is created, new ones are suppressed for `MISSION_RISK_COOLDOWN_MINUTES` (dev default **2 min**, prod **15 min**). During cooldown, a further risky capture **re-surfaces the existing pending mission** (overlay/`newMission`) so it cannot be ignored.
+- **Risky-mission cooldown** — after a risky-content mission is created, new ones are suppressed for `MISSION_RISK_COOLDOWN_MINUTES` (dev default **2 min**, prod **15 min**). During cooldown, a further risky capture **re-surfaces the existing pending mission**: its `expires_at` is extended by **24 h** and its points increase by **+5** (capped at **+50%** of the base value) so it cannot be ignored (`bumpResurfacedMission`).
 
 ### Badge categories (Sprint 4.1)
 
@@ -691,9 +706,10 @@ Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps
 
 ## Next Steps (post Sprint 5)
 
-1. **Real quiz / cognitive games** – replace demo stubs with question bank and timed exercises.
+1. **Server-side game stats** – persist `child_game_stats` so smart difficulty follows the child across devices.
 2. **Parent dashboard polish** – multi-child list, mission history charts.
 3. **FCM push** (optional) – replace dashboard polling for approvals.
+4. **Expand quiz bank** – more questions per category or author them in mission metadata.
 
 ---
 
