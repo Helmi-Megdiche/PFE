@@ -1,5 +1,7 @@
 /** Risk-based periodic capture intervals (Sprint 3.7 adaptive). */
 
+import { getEffectiveIntervalMs } from './appCapturePolicy';
+
 export const RISK_INTERVAL_HIGH_MS = 10_000;
 export const RISK_INTERVAL_MEDIUM_MS = 30_000;
 export const RISK_INTERVAL_LOW_MS = 60_000;
@@ -30,4 +32,19 @@ export function pushRiskScore(history: number[], score: number, maxSize = RISK_H
     return next.slice(-maxSize);
   }
   return next;
+}
+
+/**
+ * Risk-adaptive interval with optional app-category cap/floor.
+ * Unknown/missing package → risk-only interval.
+ */
+export function computeEffectiveAdaptiveInterval(
+  riskScores: number[],
+  appPackage?: string | null,
+): number {
+  const baseInterval = computeAdaptiveIntervalMs(riskScores);
+  if (!appPackage || appPackage === 'unknown') {
+    return baseInterval;
+  }
+  return getEffectiveIntervalMs(baseInterval, appPackage);
 }

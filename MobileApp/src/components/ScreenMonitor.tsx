@@ -50,6 +50,7 @@ export function ScreenMonitor({
     usageAccessGranted,
     lastForegroundApp,
     dynamicIntervalMs,
+    appCategory,
     avgRiskScore,
     lastError,
     lastCaptureAt,
@@ -165,8 +166,9 @@ export function ScreenMonitor({
     <View style={styles.container}>
       <Text style={styles.title}>Screen monitoring</Text>
       <Text style={styles.subtitle}>
-        On-device OCR and vision. Captures on app switch + every 60s fallback. Nothing is
-        uploaded as raw screenshots.
+        On-device OCR and vision. Captures on app switch; periodic interval adapts to risk and
+        app type (browsers up to every 30s, games app-switch only). Nothing is uploaded as raw
+        screenshots.
       </Text>
 
       <View style={styles.row}>
@@ -205,7 +207,10 @@ export function ScreenMonitor({
         <View style={styles.statusRow}>
           <ActivityIndicator size="small" color="#2563eb" />
           <Text style={styles.status}>
-            Adaptive: every {Math.round(dynamicIntervalMs / 1000)}s
+            {dynamicIntervalMs > 0
+              ? `Effective: every ${Math.round(dynamicIntervalMs / 1000)}s`
+              : 'Periodic: off (app-switch only)'}
+            {appCategory ? ` · ${appCategory}` : ''}
             {avgRiskScore != null ? ` · avg risk ${avgRiskScore}` : ''}
             {lastForegroundApp && lastForegroundApp !== 'unknown'
               ? ` · ${lastForegroundApp}`

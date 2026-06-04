@@ -109,15 +109,27 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 | **Follow-up** | 5 seconds after app switch, unless a capture completed within the last 2 seconds |
 | **Periodic (adaptive)** | Rolling average of the last **3** `combinedRiskScore` values sets the interval |
 
-| Average risk (last 3 captures) | Periodic interval |
+| Average risk (last 3 captures) | Periodic interval (risk base) |
 |--------------------------------|-------------------|
 | > 70 | 10 seconds |
 | 30 – 70 | 30 seconds |
 | < 30 | 60 seconds |
 
+**App-aware periodic interval (JS timer only):** the risk base above is adjusted by foreground app category (`MobileApp/src/utils/appCapturePolicy.ts`). Recomputed on risk change and app switch.
+
+| App category | Packages (examples) | Effective periodic interval |
+|--------------|---------------------|----------------------------|
+| `browser_social` | Chrome, Instagram, TikTok, YouTube, WhatsApp, Facebook | `min(risk base, 30s)` |
+| `game` | Roblox, Minecraft, Clash of Clans | **0** (app-switch + follow-up only) |
+| `education` | Khan Academy, Duolingo | `max(risk base, 120s)` |
+| `system` | Stock launchers | **0** |
+| `default` | Other apps | risk base unchanged |
+
+The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` periodic chain respects app-aware intervals (interval **0** clears that timer). Native frames may still arrive and are debounced/OCR-limited.
+
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
-Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **15s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.
+Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, `MobileApp/src/utils/appCapturePolicy.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **15s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.
 
 ---
 
@@ -593,7 +605,7 @@ Rules: max **3 pending** missions per child; missions expire after **24 hours**;
 |---------|-----------|
 | **Adaptive threshold** | `AVG(combined_risk_score)` over 7 days + 10, clamped 50–80; defaults to 50 for new children |
 | **Cumulative risk** | Last 5 non-null scores in 30 min; trigger if sum > 300 and count ≥ 3 |
-| **Category mapping** | `adult` → digital detox / relationships video; `violent`/`gore` → kindness / conflict quiz; `toxic` → kind words / empathy quiz; `dangerous`/`dangerous_challenge` → safety talk / parent chat; unknown → safety quiz / tic-tac-toe |
+| **Category mapping** | `adult` → safety quiz / games / digital detox; `violent`/`gore` → **media & violence quiz** / conflict quiz / kindness / games; `toxic` → kind words / empathy quiz; `dangerous`/`dangerous_challenge` → safety talk / parent chat; unknown → safety quiz / tic-tac-toe |
 | **Escalation** | After every 3 `risky_content` missions in 24 h, +30% points per level (max +60% at level 2); applied after template selection |
 | **Cooldown** | No new risky mission within 15 min of the last `risky_content` mission |
 
@@ -712,7 +724,7 @@ Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps
 
 | Feature | Details |
 |---------|---------|
-| **Quiz bank** | Table `quiz_questions` (`011_quiz_questions.sql`) — types `safety`, `conflict`, `empathy`; filtered by child age (`age_min` / `age_max`). `quizService.getRandomQuestions` + `enrichQuizMetadata` attach questions to quiz missions at generation time. Mobile `QuizScreen` reads `metadata.questions` (falls back to `quizBank.ts` if empty). |
+| **Quiz bank** | Table `quiz_questions` (`011_quiz_questions.sql`, `013_quiz_media_violence.sql`) — types `safety`, `media_violence`, `conflict`, `empathy`; filtered by child age (`age_min` / `age_max`). `quizService.getRandomQuestions` + `enrichQuizMetadata` attach questions to quiz missions at generation time. Mobile `QuizScreen` reads `metadata.questions` (falls back to `quizBank.ts` if empty). |
 | **Custom missions** | Table `custom_missions` (`012_custom_missions.sql`) — parent CRUD via `GET/POST/PUT/DELETE /api/custom-missions`. Active missions are merged into real-world template pools in `pickMissionTemplate`. |
 | **Dashboard** | **Custom real-world missions** section on [`demo_dashboard.html`](demo_dashboard.html) and [`backend/public/demo.html`](backend/public/demo.html) — create, edit, delete. |
 | **OCR false positives** | `benignRiskContext` filters `nsfw` / `adult` on SafeSearch/Fiverr parental UI and parent-dashboard OCR; wired in mobile + backend `keywordFilter`. |
