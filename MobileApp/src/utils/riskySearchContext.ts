@@ -10,7 +10,7 @@ const VIOLENT_EXPLICIT_QUERY_RE =
   /\b(gore|gory|blood|murder|kill|massacre|behead|dismember|mutilation|corpse|brutal|shooting|school\s*shooting)\b/i;
 
 /** SafeSearch / censored filter UI on a search results page — not an active explicit search. */
-function isFilteredSearchResultsContext(lower: string): boolean {
+export function isFilteredSearchResultsContext(lower: string): boolean {
   if (!SEARCH_HOST_RE.test(lower)) {
     return false;
   }

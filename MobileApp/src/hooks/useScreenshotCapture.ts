@@ -15,10 +15,12 @@ import { withTimeout } from '../utils/withTimeout';
 import {
   applyExplicitOcrBoost,
   applyPostProcessingOverride,
+  combineRiskScores,
   computeOcrRiskScore,
   enforceCategoryConsistency,
   resolveFinalCategoryWithScore,
 } from '../utils/riskCombination';
+import { isFilteredSearchResultsContext } from '../utils/riskySearchContext';
 import {
   computeAdaptiveIntervalMs,
   computeEffectiveAdaptiveInterval,
@@ -130,6 +132,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const periodicTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastResetTimeRef = useRef<number>(0);
 
   useEffect(() => {
     isMonitoringRef.current = isMonitoring;
@@ -195,6 +198,13 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   }, []);
 
   const resetPeriodicTimer = useCallback(() => {
+    const now = Date.now();
+    if (now - lastResetTimeRef.current < 500) {
+      scLog('Periodic timer restart debounced');
+      return;
+    }
+    lastResetTimeRef.current = now;
+
     if (periodicTimerRef.current) {
       clearTimeout(periodicTimerRef.current);
       periodicTimerRef.current = null;
@@ -430,35 +440,48 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           imageClassification.imageClassificationDetails?.imageRiskScore ??
           imageClassification.imageRiskScore;
 
-        const boosted = applyExplicitOcrBoost(
-          ocrRiskScore,
-          imageRiskScore,
-          keywordResult.category,
-          imageClassification.adultScore,
-        );
-        imageRiskScore = boosted.imageRiskScore;
-        let combinedRiskScore = boosted.combinedRiskScore;
+        const cleanedLower = cleanedForKeywords.toLowerCase();
+        const tfliteNsfwScore = imageClassification.imageRiskScore;
+        let combinedRiskScore: number;
+        let postProcessedCategory: string;
 
-        const postProcessed = applyPostProcessingOverride({
-          combinedRiskScore,
-          finalCategory: resolveFinalCategoryWithScore(
-            combinedRiskScore,
-            keywordResult.riskFlag,
-            imageClassification,
+        if (isFilteredSearchResultsContext(cleanedLower) && tfliteNsfwScore < 30) {
+          scLog('[Risk] Filtered UI + low TFLite — capping final combined risk');
+          imageRiskScore = Math.min(imageRiskScore, 20);
+          combinedRiskScore = Math.min(combineRiskScores(ocrRiskScore, imageRiskScore), 25);
+          postProcessedCategory = 'neutral';
+        } else {
+          const boosted = applyExplicitOcrBoost(
+            ocrRiskScore,
+            imageRiskScore,
             keywordResult.category,
-            imageClassification.imageClassificationDetails?.mappedCategory,
-          ),
-          ocrCategory: keywordResult.category,
-          keywordRiskFlag: keywordResult.riskFlag,
-          matchedKeywords: keywordResult.matchedKeywords,
-        });
-        combinedRiskScore = postProcessed.combinedRiskScore;
+            imageClassification.adultScore,
+          );
+          imageRiskScore = boosted.imageRiskScore;
+          combinedRiskScore = boosted.combinedRiskScore;
+
+          const postProcessed = applyPostProcessingOverride({
+            combinedRiskScore,
+            finalCategory: resolveFinalCategoryWithScore(
+              combinedRiskScore,
+              keywordResult.riskFlag,
+              imageClassification,
+              keywordResult.category,
+              imageClassification.imageClassificationDetails?.mappedCategory,
+            ),
+            ocrCategory: keywordResult.category,
+            keywordRiskFlag: keywordResult.riskFlag,
+            matchedKeywords: keywordResult.matchedKeywords,
+          });
+          combinedRiskScore = postProcessed.combinedRiskScore;
+          postProcessedCategory = postProcessed.finalCategory;
+        }
 
         let finalRiskFlag = combinedRiskScore > 50;
         let finalCategory = enforceCategoryConsistency(
           combinedRiskScore,
           finalRiskFlag,
-          postProcessed.finalCategory,
+          postProcessedCategory,
           imageClassification,
           keywordResult.category,
         );

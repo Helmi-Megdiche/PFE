@@ -142,36 +142,44 @@ export async function extractTextMixed(
       appPackage: options?.appPackage,
     })
   ) {
-    const tesseract = await extractArabicTextOnDevice(tesseractPath);
-    if (tesseract?.text && tesseractImprovesMlKit(mlText, cleanedMlText, tesseract.text)) {
-      const cleanedTesseract = cleanOcrText(tesseract.text);
-      if (__DEV__) {
-        scLog('[OCR] ML Kit + Tesseract Arabic fallback', {
+    const headSnippet = `${mlText}\n${cleanedMlText}`.slice(0, 200);
+    const hasArabicOrArabiziInHead =
+      containsArabicScript(headSnippet) || containsStrongArabizi(headSnippet);
+
+    if (!hasArabicOrArabiziInHead) {
+      scLog('[OCR] Skipping Tesseract – head-200 has no Arabic/Arabizi');
+    } else {
+      const tesseract = await extractArabicTextOnDevice(tesseractPath);
+      if (tesseract?.text && tesseractImprovesMlKit(mlText, cleanedMlText, tesseract.text)) {
+        const cleanedTesseract = cleanOcrText(tesseract.text);
+        if (__DEV__) {
+          scLog('[OCR] ML Kit + Tesseract Arabic fallback', {
+            mlChars: mlText.length,
+            tesseractChars: tesseract.text.length,
+            cleanedChars: cleanedTesseract.length,
+            confidence: Number(tesseract.confidence.toFixed(2)),
+            trigger: hasArabicScript ? 'arabic_script' : 'garbled_arabizi',
+          });
+        }
+        return {
+          text: tesseract.text,
+          cleanedText: cleanedTesseract,
+          source: 'mlkit+tesseract',
+          tesseractArabicText: tesseract.text,
+          tesseractConfidence: tesseract.confidence,
+          hasArabicScript:
+            detectArabicScript(tesseract.text) || detectArabicScript(cleanedTesseract),
+          hasArabiziPattern: containsDigitLetterPattern(cleanedTesseract),
+        };
+      }
+      if (__DEV__ && tesseract?.text) {
+        scLog('[OCR] Tesseract Arabic discarded — keeping ML Kit Latin text', {
           mlChars: mlText.length,
           tesseractChars: tesseract.text.length,
-          cleanedChars: cleanedTesseract.length,
-          confidence: Number(tesseract.confidence.toFixed(2)),
-          trigger: hasArabicScript ? 'arabic_script' : 'garbled_arabizi',
         });
+      } else if (__DEV__ && tesseract === null) {
+        scLog('[OCR] Tesseract fallback skipped, timed out, or failed — using ML Kit path');
       }
-      return {
-        text: tesseract.text,
-        cleanedText: cleanedTesseract,
-        source: 'mlkit+tesseract',
-        tesseractArabicText: tesseract.text,
-        tesseractConfidence: tesseract.confidence,
-        hasArabicScript:
-          detectArabicScript(tesseract.text) || detectArabicScript(cleanedTesseract),
-        hasArabiziPattern: containsDigitLetterPattern(cleanedTesseract),
-      };
-    }
-    if (__DEV__ && tesseract?.text) {
-      scLog('[OCR] Tesseract Arabic discarded — keeping ML Kit Latin text', {
-        mlChars: mlText.length,
-        tesseractChars: tesseract.text.length,
-      });
-    } else if (__DEV__ && tesseract === null) {
-      scLog('[OCR] Tesseract fallback skipped, timed out, or failed — using ML Kit path');
     }
   } else if (__DEV__ && Platform.OS === 'android' && shouldAttemptOnDeviceArabicOcr(mlText, cleanedMlText, { appPackage: options?.appPackage }) && !tesseractPath) {
     scLog('[OCR] Tesseract skipped — no file path (content:// only)');
