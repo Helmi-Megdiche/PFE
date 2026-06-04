@@ -23,8 +23,6 @@ public final class OverlayMissionLauncher {
                 Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        OverlayLaunchHolder.putExtras(
-                launch, missionId, title, description, points, missionType, metadataJson);
         context.startActivity(launch);
     }
 }

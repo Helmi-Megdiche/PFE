@@ -1,3 +1,4 @@
+import { getStaticQuizFallback } from '../constants/quizStaticBank';
 import { query } from '../db/pool';
 
 export interface QuizMissionTemplate {
@@ -26,6 +27,7 @@ export interface QuizValidationResult {
 
 const QUIZ_TEMPLATE_TYPES: Record<string, string> = {
   quiz_safety: 'safety',
+  quiz_media_violence: 'media_violence',
   conflict_resolution_quiz: 'conflict',
   empathy_exercise: 'empathy',
 };
@@ -102,19 +104,35 @@ export async function enrichQuizMetadata(
   const age = childAge ?? 12;
   const numQuestions = Number(template.metadata.numQuestions ?? 3);
   const rows = await getRandomQuestions(quizType, age, numQuestions);
-  if (rows.length === 0) {
-    return template;
+  if (rows.length > 0) {
+    const { questions, correctAnswers } = mapQuestionsForMetadata(rows);
+    return {
+      ...template,
+      metadata: {
+        ...template.metadata,
+        category: quizType,
+        questions,
+        correctAnswers,
+        numQuestions: questions.length,
+        questionIds: rows.map((r) => r.id),
+      },
+    };
   }
-  const { questions, correctAnswers } = mapQuestionsForMetadata(rows);
-  return {
-    ...template,
-    metadata: {
-      ...template.metadata,
-      category: quizType,
-      questions,
-      correctAnswers,
-      numQuestions: questions.length,
-      questionIds: rows.map((r) => r.id),
-    },
-  };
+
+  const fallback = getStaticQuizFallback(quizType, numQuestions);
+  if (fallback) {
+    return {
+      ...template,
+      metadata: {
+        ...template.metadata,
+        category: quizType,
+        questions: fallback.questions,
+        correctAnswers: fallback.correctAnswers,
+        numQuestions: fallback.questions.length,
+        questionSource: 'static_fallback',
+      },
+    };
+  }
+
+  return template;
 }

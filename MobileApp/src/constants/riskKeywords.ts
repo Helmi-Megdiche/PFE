@@ -6,7 +6,8 @@
 export const RISK_KEYWORDS: Record<string, readonly string[]> = {
   violent: [
     // English
-    'kill', 'murder', 'gun', 'weapon', 'blood', 'stab', 'fight', 'assault',
+    'kill', 'murder', 'gun', 'weapon', 'blood', 'gore', 'gory', 'stab', 'fight', 'assault',
+    'massacre', 'behead', 'dismember', 'mutilation', 'corpse', 'brutal',
     // French
     'tuer', 'arme', 'sang', 'combat', 'meurtre', 'assassinat', 'flingue',
     'couteau', 'égorger', 'poignarder', 'attentat',

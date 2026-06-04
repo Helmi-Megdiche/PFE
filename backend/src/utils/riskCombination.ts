@@ -11,6 +11,9 @@ export function computeOcrRiskScore(
   if (category === 'adult') {
     return Math.min(100, Math.max(70, 50 + matchedCount * 12));
   }
+  if (category === 'violent') {
+    return Math.min(100, Math.max(70, 50 + matchedCount * 12));
+  }
   if (riskFlag) {
     return Math.min(100, 50 + matchedCount * 12);
   }
@@ -98,6 +101,11 @@ export function applyExplicitContentOverride(
   if (adjustedOcr.category === 'adult') {
     finalCategory = 'adult';
     combinedRiskScore = Math.max(combinedRiskScore, 70);
+  }
+
+  if (adjustedOcr.category === 'violent' && adjustedOcr.riskScore > 50) {
+    finalCategory = 'violent';
+    combinedRiskScore = Math.max(combinedRiskScore, 80);
   }
 
   finalCategory = enforceCategoryConsistency(

@@ -23,6 +23,13 @@ public final class OverlayQuizHelper {
 
     public interface QuizFinishedListener {
         void onQuizFinished(String missionId, String missionType, String metadataJson);
+
+        void onQuizNeedsInApp(
+                String missionId,
+                String title,
+                int points,
+                String missionType,
+                String metadataJson);
     }
 
     public static void showQuiz(
@@ -34,7 +41,8 @@ public final class OverlayQuizHelper {
             String metadataJson,
             QuizFinishedListener listener) {
         if (!(overlayRoot instanceof ViewGroup)) {
-            listener.onQuizFinished(missionId, "quiz", metadataJson);
+            listener.onQuizNeedsInApp(
+                    missionId, title, points, "quiz", metadataJson);
             return;
         }
         ViewGroup rootGroup = (ViewGroup) overlayRoot;
@@ -45,13 +53,17 @@ public final class OverlayQuizHelper {
             JSONObject meta = new JSONObject(metadataJson != null ? metadataJson : "{}");
             questions = meta.optJSONArray("questions");
             if (questions == null || questions.length() == 0) {
-                listener.onQuizFinished(missionId, "quiz", metadataJson);
+                listener.onQuizNeedsInApp(
+                        missionId, title, points, "quiz", metadataJson);
                 return;
             }
         } catch (Exception e) {
-            listener.onQuizFinished(missionId, "quiz", metadataJson);
+            listener.onQuizNeedsInApp(
+                    missionId, title, points, "quiz", metadataJson);
             return;
         }
+
+        final JSONArray submittedAnswers = new JSONArray();
 
         LinearLayout card = buildCard(context);
         TextView badge = new TextView(context);
@@ -102,12 +114,20 @@ public final class OverlayQuizHelper {
         optionsLayout.setOrientation(LinearLayout.VERTICAL);
         quizBody.addView(optionsLayout);
 
+        final String metaJson = metadataJson != null ? metadataJson : "{}";
         final Runnable[] renderQuestion = new Runnable[1];
         renderQuestion[0] =
                 () -> {
                     optionsLayout.removeAllViews();
                     if (index[0] >= questions.length()) {
-                        listener.onQuizFinished(missionId, "quiz", metadataJson);
+                        try {
+                            JSONObject meta = new JSONObject(metaJson);
+                            meta.put("submittedAnswers", submittedAnswers);
+                            listener.onQuizFinished(
+                                    missionId, "quiz", meta.toString());
+                        } catch (Exception e) {
+                            listener.onQuizFinished(missionId, "quiz", metaJson);
+                        }
                         return;
                     }
                     try {
@@ -121,6 +141,7 @@ public final class OverlayQuizHelper {
                         JSONArray opts = q.optJSONArray("options");
                         int count = opts != null ? opts.length() : 0;
                         for (int i = 0; i < count; i++) {
+                            final int optionIndex = i;
                             Button optBtn = new Button(context);
                             optBtn.setText(
                                     (char) ('A' + i) + ". " + opts.optString(i, ""));
@@ -134,13 +155,16 @@ public final class OverlayQuizHelper {
                             lp.topMargin = dp(context, 8);
                             optBtn.setOnClickListener(
                                     v -> {
+                                        submittedAnswers.put(
+                                                String.valueOf((char) ('A' + optionIndex)));
                                         index[0] += 1;
                                         renderQuestion[0].run();
                                     });
                             optionsLayout.addView(optBtn, lp);
                         }
                     } catch (Exception e) {
-                        listener.onQuizFinished(missionId, "quiz", metadataJson);
+                        listener.onQuizNeedsInApp(
+                                missionId, title, points, "quiz", metaJson);
                     }
                 };
 

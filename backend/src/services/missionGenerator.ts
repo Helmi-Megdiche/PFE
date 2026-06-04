@@ -121,6 +121,17 @@ export const MISSION_TEMPLATES: Record<string, MissionTemplate> = {
       correctAnswers: ['A', 'B', 'C'],
     },
   },
+  quiz_media_violence: {
+    type: 'quiz',
+    title: 'Media & Violence Quiz',
+    description: 'Answer 3 questions about violence in media and staying safe online',
+    points: 30,
+    metadata: {
+      category: 'media_violence',
+      numQuestions: 3,
+      correctAnswers: ['B', 'A', 'B'],
+    },
+  },
   positive_communication: {
     type: 'real_world',
     title: 'Use Kind Words',
@@ -164,7 +175,13 @@ const RISK_CATEGORY_TEMPLATES: Record<string, string[]> = {
     'digital_detox',
     'educational_relationships',
   ],
-  violent: ['kindness_mission', 'conflict_resolution_quiz'],
+  violent: [
+    'quiz_media_violence',
+    'conflict_resolution_quiz',
+    'kindness_mission',
+    'tictactoe',
+    'nback',
+  ],
   toxic: ['positive_communication', 'empathy_exercise'],
   dangerous_challenge: ['safety_talk', 'parent_discussion'],
   default: ['quiz_safety', 'tictactoe'],

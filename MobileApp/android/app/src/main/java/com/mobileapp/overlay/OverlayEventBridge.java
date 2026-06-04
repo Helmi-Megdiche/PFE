@@ -17,6 +17,7 @@ public final class OverlayEventBridge {
     private static final String TAG = "OverlayEventBridge";
 
     public static final String EVENT_MISSION_ACTION = "onOverlayMissionAction";
+    public static final String EVENT_PENDING_NOTIFICATION = "onPendingNotificationMission";
 
     @Nullable
     private static ReactApplicationContext reactContext;
@@ -66,6 +67,11 @@ public final class OverlayEventBridge {
             pendingAction = null;
             Log.i(TAG, "flushed queued overlay action");
         }
+    }
+
+    /** Notification tap stored mission params — JS should consume once. */
+    public static void emitPendingNotificationReady() {
+        emit(EVENT_PENDING_NOTIFICATION, Arguments.createMap());
     }
 
     private static boolean emit(String eventName, WritableMap params) {

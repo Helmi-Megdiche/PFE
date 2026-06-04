@@ -126,12 +126,41 @@ public class OverlayService extends Service {
                                                     quizTitle,
                                                     quizPoints,
                                                     meta,
-                                                    (missionId, type, metadataJson) ->
+                                                    new OverlayQuizHelper.QuizFinishedListener() {
+                                                        @Override
+                                                        public void onQuizFinished(
+                                                                String missionId,
+                                                                String type,
+                                                                String metadataJson) {
                                                             OverlayEventBridge.emitMissionAction(
                                                                     missionId,
                                                                     "complete",
                                                                     type,
-                                                                    metadataJson));
+                                                                    metadataJson);
+                                                        }
+
+                                                        @Override
+                                                        public void onQuizNeedsInApp(
+                                                                String missionId,
+                                                                String t,
+                                                                int pts,
+                                                                String type,
+                                                                String metadataJson) {
+                                                            OverlayMissionLauncher.launchMissionApp(
+                                                                    OverlayService.this,
+                                                                    missionId,
+                                                                    t,
+                                                                    "",
+                                                                    pts,
+                                                                    type,
+                                                                    metadataJson);
+                                                            OverlayEventBridge.emitMissionAction(
+                                                                    missionId,
+                                                                    "start",
+                                                                    type,
+                                                                    metadataJson);
+                                                        }
+                                                    });
                                         }
 
                                         @Override

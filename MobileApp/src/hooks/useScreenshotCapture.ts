@@ -9,6 +9,7 @@ import { keywordFilter } from '../utils/keywordFilter';
 import { classifyImage } from '../services/imageClassifier';
 import { extractTextMixed } from '../services/mixedScriptOcr';
 import { postScreenEvent } from '../services/screenEventsApi';
+import { clearStaleNotificationMissionLaunch } from '../missions/missionNotificationLaunch';
 import { presentMissionFromCapture } from '../missions/presentMissionFromCapture';
 import { withTimeout } from '../utils/withTimeout';
 import {
@@ -24,7 +25,13 @@ import {
   pushRiskScore,
   RISK_INTERVAL_LOW_MS,
 } from '../utils/adaptiveCapture';
-import { getAppCategory, type AppCategory } from '../utils/appCapturePolicy';
+import { getAppCategory, isLauncherPackage, type AppCategory } from '../utils/appCapturePolicy';
+import { shouldNeutralizeLauncherWidgetCapture } from '../utils/launcherCaptureContext';
+import {
+  markMonitoringStarted,
+  resetMissionPresentationGuard,
+  shouldPresentMissionFromCapture,
+} from '../utils/missionPresentationGuard';
 import { scError, scLog, scWarn } from '../utils/screenCaptureLogger';
 import { detectCaptureQuality } from '../utils/captureQuality';
 import { isDevOverlayOcrText } from '../utils/devOverlayOcr';
@@ -447,14 +454,24 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         });
         combinedRiskScore = postProcessed.combinedRiskScore;
 
-        const finalRiskFlag = combinedRiskScore > 50;
-        const finalCategory = enforceCategoryConsistency(
+        let finalRiskFlag = combinedRiskScore > 50;
+        let finalCategory = enforceCategoryConsistency(
           combinedRiskScore,
           finalRiskFlag,
           postProcessed.finalCategory,
           imageClassification,
           keywordResult.category,
         );
+
+        if (shouldNeutralizeLauncherWidgetCapture(resolvedPackage, cleanedForKeywords)) {
+          scLog('Launcher recents/widget OCR — risk neutralized (open Chrome for enforcement)', {
+            package: resolvedPackage,
+            preview: preview.slice(0, 80),
+          });
+          finalRiskFlag = false;
+          finalCategory = 'neutral';
+          combinedRiskScore = Math.min(combinedRiskScore, 25);
+        }
 
         const details = imageClassification.imageClassificationDetails ?? {};
         const captureQuality = detectCaptureQuality(
@@ -507,18 +524,33 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         scLog('POST /api/screen-events OK');
         if (screenEventResponse.newMission?.id) {
           const nm = screenEventResponse.newMission;
-          scLog('New mission from screen event — presenting mission UI', {
-            missionId: nm.id,
-            title: nm.title,
-          });
-          void presentMissionFromCapture({
-            missionId: nm.id,
-            title: nm.title,
-            description: nm.description,
-            points: nm.points,
-            missionType: String(nm.type ?? nm.metadata?.type ?? 'real_world'),
-            metadata: (nm.metadata ?? {}) as Record<string, unknown>,
-          });
+          if (isLauncherPackage(resolvedPackage)) {
+            scLog('Mission presentation skipped — home/launcher foreground', {
+              missionId: nm.id,
+              package: resolvedPackage,
+            });
+          } else if (
+            shouldPresentMissionFromCapture(nm.id, { reSurfaced: nm.reSurfaced })
+          ) {
+            scLog('New mission from screen event — presenting mission UI', {
+              missionId: nm.id,
+              title: nm.title,
+              reSurfaced: nm.reSurfaced ?? false,
+            });
+            void presentMissionFromCapture({
+              missionId: nm.id,
+              title: nm.title,
+              description: nm.description,
+              points: nm.points,
+              missionType: String(nm.type ?? nm.metadata?.type ?? 'real_world'),
+              metadata: (nm.metadata ?? {}) as Record<string, unknown>,
+            });
+          } else {
+            scLog('Mission presentation skipped — debounce or startup grace', {
+              missionId: nm.id,
+              reSurfaced: nm.reSurfaced ?? false,
+            });
+          }
         } else if (screenEventResponse.missionGeneration) {
           scLog('No new mission', screenEventResponse.missionGeneration);
         }
@@ -699,6 +731,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       setIsMonitoring(true);
       setIsPaused(false);
       setLastError(null);
+      markMonitoringStarted();
+      clearStaleNotificationMissionLaunch();
 
       return true;
     } catch (err) {
@@ -718,6 +752,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     }
     scLog('stopMonitoring()');
     resetMissionCaptureSession();
+    resetMissionPresentationGuard();
     clearAdaptiveTimers();
     try {
       await getScreenCaptureModule().stopCapture();

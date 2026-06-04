@@ -11,13 +11,18 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
+import { ApiHttpError } from '../services/apiClient';
 import {
   abandonMission,
   completeMission,
   type MissionCompletionPayload,
 } from '../services/missionsApi';
 import { resolveGameComponent } from './missions/gameRegistry';
-import { endMissionCaptureSession } from '../utils/missionCaptureSession';
+import {
+  beginMissionCaptureSession,
+  forceEndMissionCaptureSession,
+  isMissionCapturePaused,
+} from '../utils/missionCaptureSession';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MissionScreen'>;
 
@@ -34,6 +39,15 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
       navigation.getParent()?.setOptions({ tabBarStyle: undefined });
     };
   }, [navigation]);
+
+  useEffect(() => {
+    if (!isMissionCapturePaused()) {
+      beginMissionCaptureSession();
+    }
+    return () => {
+      forceEndMissionCaptureSession();
+    };
+  }, []);
 
   // Disable hardware back; child must finish or explicitly quit.
   useEffect(() => {
@@ -52,7 +66,7 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : String(err));
     } finally {
-      endMissionCaptureSession();
+      forceEndMissionCaptureSession();
       navigation.goBack();
     }
   }, [missionId, navigation]);
@@ -102,13 +116,30 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
           {
             text: 'OK',
             onPress: () => {
-              endMissionCaptureSession();
+              forceEndMissionCaptureSession();
               navigation.goBack();
             },
           },
         ]);
       } catch (err) {
         setSubmitting(false);
+        if (err instanceof ApiHttpError && err.status === 409) {
+          settledRef.current = true;
+          Alert.alert(
+            'Mission already finished',
+            'This mission was already completed. You can close this screen.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  endMissionCaptureSession();
+                  navigation.goBack();
+                },
+              },
+            ],
+          );
+          return;
+        }
         Alert.alert('Error', err instanceof Error ? err.message : String(err));
       }
     },

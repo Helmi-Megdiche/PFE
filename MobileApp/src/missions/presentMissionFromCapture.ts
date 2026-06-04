@@ -6,8 +6,12 @@ import {
   requestOverlayPermission,
   showMissionNotification,
 } from '../native/overlayPermission';
+import { clearStaleNotificationMissionLaunch } from '../missions/missionNotificationLaunch';
 import { beginMissionCaptureSession } from '../utils/missionCaptureSession';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
+
+/** Set when presentation was blocked upstream (debounce); avoids duplicate notifications. */
+export type PresentMissionOptions = { skipNotification?: boolean };
 
 export interface PresentMissionParams {
   missionId: string;
@@ -30,7 +34,10 @@ function metadataForOverlay(params: PresentMissionParams): Record<string, unknow
   };
 }
 
-export async function presentMissionFromCapture(params: PresentMissionParams): Promise<void> {
+export async function presentMissionFromCapture(
+  params: PresentMissionParams,
+  options?: PresentMissionOptions,
+): Promise<void> {
   const overlayMetadata = metadataForOverlay(params);
   beginMissionCaptureSession();
 
@@ -61,11 +68,13 @@ export async function presentMissionFromCapture(params: PresentMissionParams): P
     return;
   }
 
-  // Always show notification — backup if overlay is hidden behind OEM chrome or removed by race.
-  await showMissionNotification(params);
+  if (!options?.skipNotification) {
+    await showMissionNotification(params);
+  }
 
   try {
     await showMissionOverlay({ ...params, metadata: overlayMetadata });
+    clearStaleNotificationMissionLaunch();
     scLog('Mission overlay shown', { missionId: params.missionId });
   } catch (err) {
     scWarn('showMissionOverlay failed', err);

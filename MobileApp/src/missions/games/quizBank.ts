@@ -66,6 +66,36 @@ const QUIZ_BANK: Record<string, QuizQuestion[]> = {
       ],
     },
   ],
+  // quiz_media_violence — correctAnswers ['B','A','B']
+  media_violence: [
+    {
+      text: 'You see a graphic violent video online. What should you do first?',
+      options: [
+        'Share it with friends',
+        'Close it and tell a trusted adult', // B ✓
+        'Watch more to understand',
+        'Save it for later',
+      ],
+    },
+    {
+      text: 'Why is it harmful to share violent or gore images?',
+      options: [
+        'It can upset people and get you in trouble', // A ✓
+        'Everyone loves them',
+        'It makes you famous',
+        'It is always allowed online',
+      ],
+    },
+    {
+      text: 'You searched for violent images out of curiosity. A better choice next time is to…',
+      options: [
+        'Search for more',
+        'Ask a parent why that content is harmful', // B ✓
+        'Post what you found',
+        'Ignore your feelings',
+      ],
+    },
+  ],
   // empathy_exercise — correctAnswers ['A','B']
   empathy: [
     {

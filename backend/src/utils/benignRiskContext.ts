@@ -34,6 +34,12 @@ function isMissionBlockingOverlayContext(lower: string): boolean {
   );
 }
 
+function isMissionGameUiContext(lower: string): boolean {
+  return /\b(tic-tac-toe|n-back|memory challenge|beat the computer|minigame|cognitive|your points|rewards?)\b/i.test(
+    lower,
+  );
+}
+
 function isOwnGamificationDashboardContext(lower: string): boolean {
   const dashboardHints =
     /\b(missions?|bonus\s+points?|pending\s+approval|custom\s+mission|escape\s+log|mission\s+history|gamification|parent\s+tools|rewards?\s+management)\b/i.test(
@@ -52,6 +58,10 @@ export function filterBenignKeywordMatches(
     return matchedKeywords;
   }
   const lower = text.toLowerCase();
+  if (isMissionGameUiContext(lower)) {
+    return [];
+  }
+
   const parentalUi = isParentalControlNsfwContext(lower);
   const ownDashboard = isOwnGamificationDashboardContext(lower);
   const missionOverlay = isMissionBlockingOverlayContext(lower);

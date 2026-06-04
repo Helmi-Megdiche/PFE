@@ -5,16 +5,28 @@ import {
   getOverlayMissionEmitter,
   hideMissionOverlay,
   OVERLAY_MISSION_EVENTS,
+  showMissionOverlay,
   type OverlayMissionActionEvent,
 } from '../native/OverlayMission';
 import { executeMissionAction } from '../missions/missionCompletion';
 import {
-  consumePendingNotificationMission,
-  promptOverlayPermissionIfNeeded,
-} from '../native/overlayPermission';
+  clearStaleNotificationMissionLaunch,
+  tryOpenPendingNotificationMission,
+} from '../missions/missionNotificationLaunch';
+import { promptOverlayPermissionIfNeeded } from '../native/overlayPermission';
 import { navigateToMissionScreen } from '../navigation/navigationRef';
-import { endMissionCaptureSession } from '../utils/missionCaptureSession';
+import { forceEndMissionCaptureSession } from '../utils/missionCaptureSession';
 import { scError, scLog } from '../utils/screenCaptureLogger';
+
+function isQuizNotPassedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /quiz not passed/i.test(message);
+}
+
+function quizRetryMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const { submittedAnswers: _s, answers: _a, ...rest } = metadata;
+  return rest;
+}
 
 function showBriefMessage(message: string): void {
   if (Platform.OS === 'android') {
@@ -35,6 +47,7 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
   scLog('Overlay mission action', event);
 
   if (event.action === 'start') {
+    clearStaleNotificationMissionLaunch();
     await hideMissionOverlay();
     navigateToMissionScreen({
       missionId: event.missionId,
@@ -54,40 +67,42 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
       metadata,
       event.action,
     );
+    clearStaleNotificationMissionLaunch();
     await hideMissionOverlay();
-    endMissionCaptureSession();
+    forceEndMissionCaptureSession();
     showBriefMessage(result.message);
   } catch (err) {
+    if (
+      event.action === 'complete' &&
+      event.missionType === 'quiz' &&
+      isQuizNotPassedError(err)
+    ) {
+      scLog('Quiz not passed — re-showing overlay for retry');
+      showBriefMessage('Need at least 2 of 3 correct. Try again!');
+      try {
+        await showMissionOverlay({
+          missionId: event.missionId,
+          title: String(metadata.overlayTitle ?? 'Mission'),
+          description: String(metadata.overlayDescription ?? ''),
+          points: Number(metadata.overlayPoints ?? 0),
+          missionType: event.missionType,
+          metadata: quizRetryMetadata(metadata),
+        });
+      } catch (retryErr) {
+        scError('Quiz overlay retry failed', retryErr);
+        await hideMissionOverlay();
+        forceEndMissionCaptureSession();
+      }
+      return;
+    }
+
+    clearStaleNotificationMissionLaunch();
     await hideMissionOverlay();
-    endMissionCaptureSession();
+    forceEndMissionCaptureSession();
     const message = err instanceof Error ? err.message : String(err);
     scError('Overlay mission action failed', err);
     showBriefMessage(`Mission failed: ${message}`);
   }
-}
-
-function openMissionFromNotification(pending: {
-  missionId: string;
-  title: string;
-  description: string;
-  points: number;
-  missionType: string;
-  metadataJson: string;
-}): void {
-  let metadata: Record<string, unknown> = {};
-  try {
-    metadata = JSON.parse(pending.metadataJson || '{}') as Record<string, unknown>;
-  } catch {
-    metadata = {};
-  }
-  navigateToMissionScreen({
-    missionId: pending.missionId,
-    title: pending.title,
-    description: pending.description,
-    points: pending.points,
-    missionType: pending.missionType,
-    metadata,
-  });
 }
 
 /**
@@ -103,19 +118,14 @@ export function useMissionOverlayListener(): void {
 
     void promptOverlayPermissionIfNeeded();
 
-    void consumePendingNotificationMission().then((pending) => {
-      if (pending?.missionId) {
-        scLog('Opening mission from notification tap', pending.missionId);
-        openMissionFromNotification(pending);
-      }
-    });
+    const openPending = () => {
+      void tryOpenPendingNotificationMission();
+    };
+
+    openPending();
 
     const emitter = getOverlayMissionEmitter();
-    if (!emitter) {
-      return;
-    }
-
-    const sub = emitter.addListener(
+    const actionSub = emitter?.addListener(
       OVERLAY_MISSION_EVENTS.MISSION_ACTION,
       (event: OverlayMissionActionEvent) => {
         if (handlingRef.current) {
@@ -128,14 +138,23 @@ export function useMissionOverlayListener(): void {
       },
     );
 
+    const notificationSub = emitter?.addListener(
+      OVERLAY_MISSION_EVENTS.PENDING_NOTIFICATION,
+      () => {
+        openPending();
+      },
+    );
+
     const appStateSub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
         void flushPendingOverlayEvents();
+        openPending();
       }
     });
 
     return () => {
-      sub.remove();
+      actionSub?.remove();
+      notificationSub?.remove();
       appStateSub.remove();
     };
   }, []);

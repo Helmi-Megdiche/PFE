@@ -36,6 +36,54 @@ function isMissionBlockingOverlayContext(lower: string): boolean {
   );
 }
 
+/** In-app mission / game UI OCR (Tic-Tac-Toe, N-back, rewards tab, etc.). */
+export function isMissionGameUiContext(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\b(tic-tac-toe|n-back|memory challenge|beat the computer|minigame|cognitive|your points|rewards?)\b/i.test(
+      lower,
+    ) ||
+    /\b(question\s+\d+\s*\/\s*\d+|points?\s+quiz|online safety quiz)\b/i.test(lower)
+  );
+}
+
+/** Do not POST screen events for our own mission UI captured in screenshots. */
+export function shouldSkipScreenEventReporting(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (isMissionGameUiContext(text)) {
+    return true;
+  }
+  if (isOwnScreenMonitorContext(lower)) {
+    return true;
+  }
+  if (
+    /\b(memory challenge|online safety quiz|play n-back)\b/i.test(lower) &&
+    /\b(points?\s+quiz|points?\s+cognitive|cognitive|question\s+\d)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Home launcher widgets (Discord, Instagram previews) without explicit adult URLs. */
+function isHomeFeedLauncherContext(lower: string): boolean {
+  const socialFeed =
+    /\b(discord\.gg|instagram|whatsapp|snapchat|messenger|friends|followers)\b/i.test(
+      lower,
+    );
+  const explicitAdult =
+    /\b(pornhub|xvideos|porn|xxx|nsfw|hentai|brazzers|sislovesme)\b/i.test(lower);
+  return socialFeed && !explicitAdult;
+}
+
+/** SafeGuard monitor tab — avoid self-capture noise in parent dashboard. */
+function isOwnScreenMonitorContext(lower: string): boolean {
+  return (
+    /\bscreen\s+monitoring\b/i.test(lower) &&
+    /\b(on-device\s+ocr|captures?\s+on\s+app\s+switch|vision)\b/i.test(lower)
+  );
+}
+
 /** OCR of demo_dashboard / gamification parent tools. */
 function isOwnGamificationDashboardContext(lower: string): boolean {
   const dashboardHints =
@@ -58,17 +106,25 @@ export function filterBenignKeywordMatches(
     return matchedKeywords;
   }
   const lower = text.toLowerCase();
+  if (shouldSkipScreenEventReporting(text)) {
+    return [];
+  }
+
   const parentalUi = isParentalControlNsfwContext(lower);
   const ownDashboard = isOwnGamificationDashboardContext(lower);
   const missionOverlay = isMissionBlockingOverlayContext(lower);
+  const homeFeed = isHomeFeedLauncherContext(lower);
 
-  if (!parentalUi && !ownDashboard && !missionOverlay) {
+  if (!parentalUi && !ownDashboard && !missionOverlay && !homeFeed) {
     return matchedKeywords;
   }
 
   return matchedKeywords.filter((kw) => {
     const k = kw.toLowerCase();
-    if (parentalUi && (k === 'nsfw' || k === 'adult')) {
+    if ((parentalUi || homeFeed) && (k === 'nsfw' || k === 'adult')) {
+      return false;
+    }
+    if (homeFeed && (k === 'porn' || k === 'sex' || k === 'blowjob')) {
       return false;
     }
     if ((ownDashboard || missionOverlay) && ADULT_KEYWORD_SET.has(k)) {

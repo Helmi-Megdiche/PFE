@@ -1,4 +1,5 @@
 import {
+  enrichQuizMetadata,
   getRandomQuestions,
   mapQuestionsForMetadata,
   validateQuizAnswers,
@@ -69,5 +70,23 @@ describe('quizService', () => {
     const fail = validateQuizAnswers(questions, [1, 1, 1]);
     expect(fail.passed).toBe(false);
     expect(fail.correctCount).toBe(1);
+  });
+
+  it('uses static fallback when DB returns no quiz rows', async () => {
+    mockedQuery.mockResolvedValue({ rows: [] });
+    const template = {
+      type: 'quiz',
+      title: 'Media & Violence Quiz',
+      description: 'Answer 3 questions',
+      points: 30,
+      metadata: { category: 'media_violence', numQuestions: 3 },
+    };
+    const enriched = await enrichQuizMetadata('quiz_media_violence', template, 12);
+    expect(enriched.metadata.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('graphic violent video') }),
+      ]),
+    );
+    expect(enriched.metadata.questionSource).toBe('static_fallback');
   });
 });

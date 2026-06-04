@@ -25,6 +25,9 @@ export function computeOcrRiskScore(
   if (category === 'adult') {
     return Math.min(100, Math.max(70, 50 + matchedCount * 12));
   }
+  if (category === 'violent') {
+    return Math.min(100, Math.max(70, 50 + matchedCount * 12));
+  }
   if (riskFlag) {
     return Math.min(100, 50 + matchedCount * 12);
   }
@@ -68,6 +71,9 @@ export function applyExplicitOcrBoost(
   let combinedRiskScore = combineRiskScores(ocrRiskScore, adjustedImage);
   if (ocrCategory === 'adult') {
     combinedRiskScore = Math.max(combinedRiskScore, 70);
+  }
+  if (ocrCategory === 'violent' && ocrRiskScore > 50) {
+    combinedRiskScore = Math.max(combinedRiskScore, 80);
   }
 
   return { combinedRiskScore, imageRiskScore: adjustedImage };
@@ -168,7 +174,11 @@ export function applyPostProcessingOverride(input: PostProcessInput): {
   let { combinedRiskScore, finalCategory } = input;
   const kw = input.matchedKeywords.map((k) => k.toLowerCase());
 
-  const violentKw = ['gun', 'rifle', 'weapon', 'kill', 'murder', 'bomb', 'knife'];
+  const violentKw = [
+    'gun', 'rifle', 'weapon', 'kill', 'murder', 'bomb', 'knife',
+    'gore', 'gory', 'blood', 'stab', 'assault', 'fight', 'massacre', 'behead',
+    'dismember', 'mutilation', 'corpse', 'brutal',
+  ];
   const drugKw = ['drug', 'syringe', 'cocaine', 'heroin', 'pill', 'meth', 'weed'];
   const adultKw = ['porn', 'hentai', 'xxx', 'nsfw', 'nude', 'sex'];
 

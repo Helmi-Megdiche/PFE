@@ -52,10 +52,16 @@ export interface NewMissionSnapshot {
   status: string;
   type: string;
   metadata: Record<string, unknown>;
+  /** Set when backend re-presents an existing pending mission during cooldown. */
+  reSurfaced?: boolean;
 }
 
 export function getMissions(childId: string): Promise<MissionsListResponse> {
   return api.get<MissionsListResponse>(`/missions/child/${childId}`);
+}
+
+export function getMissionById(missionId: string): Promise<MissionDto> {
+  return api.get<MissionDto>(`/missions/${missionId}`);
 }
 
 export function getChildPoints(childId: string): Promise<{ childId: string; totalPoints: number }> {

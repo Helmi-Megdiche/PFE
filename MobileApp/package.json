@@ -9,7 +9,8 @@
     "postinstall": "node scripts/clean-gradle-plugin-eclipse.js",
     "download-nsfw-model": "node scripts/download-nsfw-model.js",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "test:all": "powershell -ExecutionPolicy Bypass -File ../scripts/run-all-tests.ps1"
   },
   "dependencies": {
     "@devinikhiya/react-native-tesseractocr": "^0.1.10",

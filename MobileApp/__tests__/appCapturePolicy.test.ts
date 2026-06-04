@@ -1,6 +1,7 @@
 import {
   getAppCategory,
   getEffectiveIntervalMs,
+  isLauncherPackage,
 } from '../src/utils/appCapturePolicy';
 import { RISK_INTERVAL_HIGH_MS, RISK_INTERVAL_LOW_MS } from '../src/utils/adaptiveCapture';
 
@@ -41,5 +42,10 @@ describe('appCapturePolicy', () => {
     expect(getEffectiveIntervalMs(RISK_INTERVAL_LOW_MS, 'com.example.app')).toBe(
       RISK_INTERVAL_LOW_MS,
     );
+  });
+
+  it('detects MIUI home as launcher', () => {
+    expect(isLauncherPackage('com.miui.home')).toBe(true);
+    expect(isLauncherPackage('com.android.chrome')).toBe(false);
   });
 });

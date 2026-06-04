@@ -219,7 +219,6 @@ public class ScreenCaptureModule extends ReactContextBaseJavaModule
             if (pending != null) {
                 pending.resolve(false);
             }
-            emitError("MediaProjection permission denied");
             return;
         }
 

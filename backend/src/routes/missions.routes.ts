@@ -312,6 +312,39 @@ router.post(
 const ESCAPE_PENALTY = 10;
 
 /**
+ * GET /api/missions/:missionId — child fetches a single mission (e.g. verify notification launch).
+ */
+router.get(
+  '/:missionId',
+  requireChildRole,
+  async (req: AuthenticatedRequest, res: Response) => {
+    const childId = req.user!.childId!;
+    const { missionId } = req.params;
+
+    try {
+      const { rows } = await query<MissionRow>(
+        `SELECT ${MISSION_SELECT}
+         FROM missions WHERE id = $1 AND child_id = $2 LIMIT 1`,
+        [missionId, childId],
+      );
+      const mission = rows[0];
+      if (!mission) {
+        res.status(404).json({ error: 'Mission not found' });
+        return;
+      }
+      res.json(mapMission(mission));
+    } catch (err) {
+      logger.error('Mission fetch failed', {
+        childId,
+        missionId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to fetch mission' });
+    }
+  },
+);
+
+/**
  * POST /api/missions/:missionId/abandon — child escaped active mission
  */
 router.post(

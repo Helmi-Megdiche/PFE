@@ -1,4 +1,5 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
+import { findAdultSiteMatches } from './adultSiteContext';
 import { applyBenignKeywordContext } from './benignRiskContext';
 import { applyRiskySearchBoost } from './riskySearchContext';
 import { computeOcrRiskScore } from './riskCombination';
@@ -121,7 +122,7 @@ export function findHighRiskKeywords(text: string): string[] {
         if (text.includes(kw)) {
           matched.add(kw);
         }
-      } else if (kw.length <= 3) {
+      } else if (kw.length <= 4 && !containsArabicScript(kw)) {
         if (new RegExp(`\\b${escapeRegex(kw)}\\b`, 'i').test(text)) {
           matched.add(kw);
         }
@@ -136,6 +137,10 @@ export function findHighRiskKeywords(text: string): string[] {
     for (const hit of regexHits) {
       matched.add(hit.toLowerCase());
     }
+  }
+
+  for (const site of findAdultSiteMatches(text)) {
+    matched.add(site);
   }
 
   return [...matched];
@@ -250,15 +255,15 @@ export function keywordFilter(
   normalizedText?: string,
 ): KeywordFilterResult {
   let merged = applyBenignKeywordContext(text, scanText(text));
-  if (!normalizedText || normalizedText === text) {
-    return applyRiskySearchBoost(text, merged);
+  if (normalizedText && normalizedText !== text) {
+    const secondary = applyBenignKeywordContext(
+      normalizedText,
+      scanText(normalizedText),
+    );
+    merged = mergeResults(merged, secondary);
   }
-  const secondary = applyBenignKeywordContext(
-    normalizedText,
-    scanText(normalizedText),
-  );
-  merged = mergeResults(merged, secondary);
-  return applyRiskySearchBoost(text, merged);
+  merged = applyRiskySearchBoost(text, merged);
+  return applyBenignKeywordContext(text, merged);
 }
 
 /**

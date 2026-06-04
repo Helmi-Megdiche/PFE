@@ -2,6 +2,8 @@
  * Pauses periodic screen capture while a blocking mission (overlay or MissionScreen) is active.
  */
 
+import { scLog } from './screenCaptureLogger';
+
 type CaptureControl = () => void | Promise<void>;
 
 let pauseCaptureFn: CaptureControl | null = null;
@@ -27,6 +29,7 @@ export function isMissionCapturePaused(): boolean {
 
 export function beginMissionCaptureSession(): void {
   sessionDepth += 1;
+  scLog('Mission capture session begin', { sessionDepth });
   if (sessionDepth === 1) {
     void pauseCaptureFn?.();
   }
@@ -40,6 +43,16 @@ export function endMissionCaptureSession(): void {
   if (sessionDepth === 0) {
     void resumeCaptureFn?.();
   }
+}
+
+/** Always resume capture when a mission flow ends (handles nested begin calls). */
+export function forceEndMissionCaptureSession(): void {
+  if (sessionDepth <= 0) {
+    return;
+  }
+  scLog('Mission capture session force end', { sessionDepth });
+  sessionDepth = 0;
+  void resumeCaptureFn?.();
 }
 
 /** Clears a stuck session (e.g. monitoring toggled off mid-mission). Does not resume native capture. */

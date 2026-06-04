@@ -2,6 +2,7 @@ import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
 export const OVERLAY_MISSION_EVENTS = {
   MISSION_ACTION: 'onOverlayMissionAction',
+  PENDING_NOTIFICATION: 'onPendingNotificationMission',
 } as const;
 
 export interface OverlayMissionActionEvent {

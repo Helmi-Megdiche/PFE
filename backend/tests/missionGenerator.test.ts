@@ -142,7 +142,13 @@ describe('pickMissionTemplate', () => {
       age: 11,
       recentTemplateKeys: [],
     });
-    expect(['kindness_mission', 'conflict_resolution_quiz']).toContain(key);
+    expect([
+      'quiz_media_violence',
+      'conflict_resolution_quiz',
+      'kindness_mission',
+      'tictactoe',
+      'nback',
+    ]).toContain(key);
   });
 
   it('selects category-specific missions for dangerous content', () => {

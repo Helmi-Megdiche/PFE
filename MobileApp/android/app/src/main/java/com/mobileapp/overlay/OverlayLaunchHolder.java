@@ -36,6 +36,7 @@ public final class OverlayLaunchHolder {
     map.putString("metadataJson", intent.getStringExtra(EXTRA_METADATA));
     pending = map;
     clearMissionIntentExtras(intent);
+    OverlayEventBridge.emitPendingNotificationReady();
   }
 
   /** Prevent re-delivering the same notification mission on every activity restart. */
@@ -63,5 +64,9 @@ public final class OverlayLaunchHolder {
     WritableMap map = pending;
     pending = null;
     return map;
+  }
+
+  public static void clearPending() {
+    pending = null;
   }
 }

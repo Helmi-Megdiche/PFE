@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, Vibration } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { lightTapFeedback } from '../../utils/hapticFeedback';
 import {
   makeNbackSequence,
   nbackAccuracy,
@@ -84,7 +85,7 @@ export function NBackGame({ metadata, onComplete }: GameProps): React.JSX.Elemen
       t.falseAlarms += 1;
     }
     setTapFlash(true);
-    Vibration.vibrate(20);
+    lightTapFeedback();
     setTimeout(() => setTapFlash(false), 200);
   };
 

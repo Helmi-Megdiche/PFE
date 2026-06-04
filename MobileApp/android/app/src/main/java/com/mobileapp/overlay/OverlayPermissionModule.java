@@ -108,6 +108,12 @@ public class OverlayPermissionModule extends ReactContextBaseJavaModule {
         promise.resolve(OverlayLaunchHolder.consumePending());
     }
 
+    @ReactMethod
+    public void clearPendingNotificationMission(Promise promise) {
+        OverlayLaunchHolder.clearPending();
+        promise.resolve(true);
+    }
+
     private boolean canDrawOverlays() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return Settings.canDrawOverlays(getReactApplicationContext());

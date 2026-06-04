@@ -127,6 +127,10 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` periodic chain respects app-aware intervals (interval **0** clears that timer). Native frames may still arrive and are debounced/OCR-limited.
 
+**Mission overlay debounce:** the same pending mission is not re-shown within **90s**; **re-surfaced** missions are suppressed for **8s** after monitoring starts (avoids quiz spam on toggle-on). Overlays are skipped when the foreground app is a **launcher/home** package (`com.miui.home`, etc.).
+
+**Launcher recents bleed:** when the foreground app is the home launcher but OCR is from a **Chrome recent card** (pornhub thumbnail on MIUI home), the event is stored as **neutral** — enforcement applies when the child opens Chrome (`com.android.chrome` foreground).
+
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
 Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, `MobileApp/src/utils/appCapturePolicy.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **15s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.

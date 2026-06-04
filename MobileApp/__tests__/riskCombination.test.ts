@@ -1,9 +1,12 @@
 import {
+  applyExplicitOcrBoost,
+  applyPostProcessingOverride,
   combineRiskScores,
   computeImageRiskScore,
   computeOcrRiskScore,
   resolveCombinedCategory,
 } from '../src/utils/riskCombination';
+import { keywordFilter } from '../src/utils/keywordFilter';
 
 describe('riskCombination', () => {
   it('weights image risk higher than OCR', () => {
@@ -55,5 +58,22 @@ describe('riskCombination', () => {
     expect(computeOcrRiskScore(true, 'violent', 2)).toBeGreaterThan(
       computeOcrRiskScore(false, 'neutral', 0),
     );
+  });
+
+  it('violent OCR with low image score still reaches mission threshold', () => {
+    const text = 'Amazon.ca Dirty Down Gore Effect blood makeup';
+    const kw = keywordFilter(text);
+    expect(kw.category).toBe('violent');
+    const ocrScore = computeOcrRiskScore(kw.riskFlag, kw.category, kw.matchedKeywords.length);
+    const imageScore = 8;
+    const boosted = applyExplicitOcrBoost(ocrScore, imageScore, kw.category, 0);
+    const post = applyPostProcessingOverride({
+      combinedRiskScore: boosted.combinedRiskScore,
+      finalCategory: 'violent',
+      ocrCategory: kw.category,
+      keywordRiskFlag: kw.riskFlag,
+      matchedKeywords: kw.matchedKeywords,
+    });
+    expect(post.combinedRiskScore).toBeGreaterThanOrEqual(80);
   });
 });

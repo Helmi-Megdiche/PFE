@@ -12,6 +12,7 @@ interface OverlayPermissionNativeModule {
     metadataJson: string,
   ): Promise<boolean>;
   getPendingNotificationMission(): Promise<PendingNotificationMission | null>;
+  clearPendingNotificationMission(): Promise<boolean>;
 }
 
 export interface PendingNotificationMission {
@@ -86,6 +87,18 @@ export async function consumePendingNotificationMission(): Promise<PendingNotifi
     return await mod.getPendingNotificationMission();
   } catch {
     return null;
+  }
+}
+
+export async function clearPendingNotificationMission(): Promise<void> {
+  const mod = getModule();
+  if (!mod) {
+    return;
+  }
+  try {
+    await mod.clearPendingNotificationMission();
+  } catch {
+    // ignore
   }
 }
 

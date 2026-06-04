@@ -52,8 +52,15 @@ function buildCompletionPayload(
     case 'real_world':
       return { confirmed: true };
     case 'quiz': {
-      const correct = (metadata.correctAnswers as string[] | undefined) ?? ['A', 'B', 'A'];
-      return { answers: correct };
+      const submitted = metadata.submittedAnswers as string[] | undefined;
+      if (Array.isArray(submitted) && submitted.length > 0) {
+        return { answers: submitted };
+      }
+      const fromMeta = metadata.answers as string[] | undefined;
+      if (Array.isArray(fromMeta) && fromMeta.length > 0) {
+        return { answers: fromMeta };
+      }
+      return { answers: [] };
     }
     case 'cognitive': {
       const exercise = String(metadata.exercise ?? 'nback');

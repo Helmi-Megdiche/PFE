@@ -24,9 +24,27 @@ const EDUCATION_PACKAGES = new Set([
 
 const SYSTEM_PACKAGES = new Set([
   'com.android.launcher',
+  'com.android.launcher3',
   'com.hihonor.android.launcher',
+  'com.huawei.android.launcher',
   'com.google.android.apps.nexuslauncher',
+  'com.miui.home',
+  'com.mi.android.globallauncher',
+  'com.sec.android.app.launcher',
+  'com.oppo.launcher',
+  'com.oneplus.launcher',
 ]);
+
+/** True for home/launcher packages — no mission overlay from capture on these screens. */
+export function isLauncherPackage(packageName: string): boolean {
+  if (!packageName || packageName === 'unknown') {
+    return false;
+  }
+  if (SYSTEM_PACKAGES.has(packageName)) {
+    return true;
+  }
+  return packageName.includes('launcher') || packageName.endsWith('.home');
+}
 
 export function getAppCategory(packageName: string): AppCategory {
   if (BROWSER_SOCIAL_PACKAGES.has(packageName)) {

@@ -71,7 +71,7 @@ describe('hasRecentRiskyMission', () => {
   });
 
   it('returns true when a pending risky mission exists', async () => {
-    mockedQuery.mockResolvedValue({ rows: [{ '?column?': 1 }] });
+    mockedQuery.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
     await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(true);
     expect(mockedQuery).toHaveBeenCalledWith(
       expect.stringContaining("status = 'pending'"),
@@ -79,14 +79,17 @@ describe('hasRecentRiskyMission', () => {
     );
   });
 
-  it('returns false when no recent risky mission', async () => {
-    mockedQuery.mockResolvedValue({ rows: [] });
-    await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(false);
+  it('returns true when a risky mission was created within cooldown', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+    await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(true);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores minutes parameter (cooldown is pending-only)', async () => {
+  it('returns false when no pending or recent risky mission', async () => {
     mockedQuery.mockResolvedValue({ rows: [] });
-    await hasRecentRiskyMission('child-1', 30);
-    expect(mockedQuery).toHaveBeenCalledWith(expect.any(String), ['child-1']);
+    await expect(hasRecentRiskyMission('child-1', 15)).resolves.toBe(false);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
   });
 });

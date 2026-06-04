@@ -1,4 +1,5 @@
 import { RISK_KEYWORDS } from '../constants/riskKeywords';
+import { findAdultSiteMatches } from './adultSiteContext';
 import { applyBenignKeywordContext } from './benignRiskContext';
 import { applyRiskySearchBoost } from './riskySearchContext';
 import { containsArabicScript, normalizeArabizi } from './normalizeArabizi';
@@ -76,7 +77,8 @@ export const DERJA_ARABIZI_HIGH_RISK: readonly string[] = [
 ];
 
 export const VIOLENT_TEXT_KEYWORDS: readonly string[] = [
-  'gun', 'rifle', 'pistol', 'weapon', 'knife', 'bomb', 'grenade', 'shoot', 'kill',
+  'gun', 'rifle', 'pistol', 'weapon', 'knife', 'bomb', 'grenade', 'shoot', 'kill', 'murder',
+  'gore', 'gory', 'blood', 'massacre', 'behead', 'dismember', 'mutilation', 'corpse', 'brutal',
   'arme', 'fusil', 'pistolet', 'couteau', 'tuer',
   'سلاح', 'بندقية', 'سكين', 'قتل',
 ];
@@ -118,7 +120,8 @@ export function findHighRiskKeywords(text: string): string[] {
         if (text.includes(kw)) {
           matched.add(kw);
         }
-      } else if (kw.length <= 3) {
+      } else if (kw.length <= 4 && !containsArabicScript(kw)) {
+        // Avoid substring hits like "pute" inside "computer".
         if (new RegExp(`\\b${escapeRegex(kw)}\\b`, 'i').test(text)) {
           matched.add(kw);
         }
@@ -133,6 +136,10 @@ export function findHighRiskKeywords(text: string): string[] {
     for (const hit of regexHits) {
       matched.add(hit.toLowerCase());
     }
+  }
+
+  for (const site of findAdultSiteMatches(text)) {
+    matched.add(site);
   }
 
   return [...matched];
@@ -229,7 +236,9 @@ export function keywordFilter(
       applyBenignKeywordContext(normalizedText, scanText(normalizedText)),
     );
   }
-  return applyRiskySearchBoost(text, merged);
+  merged = applyRiskySearchBoost(text, merged);
+  // Benign pass last — design-tool / SafeSearch pages may contain "nsfw" on google.com/sear.
+  return applyBenignKeywordContext(text, merged);
 }
 
 /** Backend parity alias (mirrors `backend/src/utils/keywordFilter.ts#analyzeText`). */
