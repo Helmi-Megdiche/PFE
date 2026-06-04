@@ -90,6 +90,23 @@ export function shouldAttemptOnDeviceArabicOcr(
   cleanedMlText: string,
   options?: ArabicOcrTriggerOptions,
 ): boolean {
+  if (!mlText && !cleanedMlText) {
+    return false;
+  }
+
+  const combined = `${mlText}\n${cleanedMlText}`;
+
+  if (!containsArabicScript(combined) && !containsStrongArabizi(combined)) {
+    const needsGarbledOrHintPath =
+      pageHintsArabicContent(cleanedMlText) ||
+      pageHintsArabicContent(mlText) ||
+      looksLikeMlKitMisreadArabic(cleanedMlText) ||
+      looksLikeMlKitMisreadArabic(mlText);
+    if (!needsGarbledOrHintPath) {
+      return false;
+    }
+  }
+
   if (containsArabicScript(mlText) || containsArabicScript(cleanedMlText)) {
     return true;
   }

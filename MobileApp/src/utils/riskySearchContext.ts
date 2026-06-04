@@ -14,9 +14,17 @@ export function isFilteredSearchResultsContext(lower: string): boolean {
   if (!SEARCH_HOST_RE.test(lower)) {
     return false;
   }
-  return /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode)\b/i.test(
+  const hasFilterUi = /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode|flouter|mode\s*ia|flou)\b/i.test(
     lower,
   );
+  if (!hasFilterUi) {
+    return false;
+  }
+  // Blur / SafeSearch chrome with an explicit query (e.g. "porn") is still enforcement.
+  if (ADULT_EXPLICIT_QUERY_RE.test(lower) || VIOLENT_EXPLICIT_QUERY_RE.test(lower)) {
+    return false;
+  }
+  return true;
 }
 
 function isSearchHostContext(text: string): boolean {
