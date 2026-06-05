@@ -793,16 +793,17 @@ VALUES ('safety', 'Your question?', ARRAY['Wrong', 'Correct', 'Wrong2', 'Wrong3'
 
 ## Documentation for Final Report
 
-Planned artefacts under `docs/`:
+Artefacts under `docs/`:
 
-| Document | Purpose |
-|----------|---------|
-| `SRS.md` | Software requirements (from cahiers des charges) |
-| `architecture.md` | Component diagrams and deployment views |
-| `scoring_formulas.md` | Mathematical definitions for scores |
-| `testing_strategy.md` | Unit, integration, manual test plans |
-| `deployment.md` | Production deployment guide |
-| `scrum_artifacts.md` | Sprint planning, retrospectives |
+| Document | Purpose | Status |
+|----------|---------|--------|
+| `PREFINAL_REPORT.md` | Pre-final technical report (architecture, implementation, limitations, v1.0-final) | **Available** |
+| `scoring_formulas.md` | Mathematical definitions for scores | **Available** |
+| `SRS.md` | Software requirements (from cahiers des charges) | Planned |
+| `architecture.md` | Component diagrams and deployment views | Planned |
+| `testing_strategy.md` | Unit, integration, manual test plans | Planned |
+| `deployment.md` | Production deployment guide | Planned |
+| `scrum_artifacts.md` | Sprint planning, retrospectives | Planned |
 
 The final PFE report (PDF) will reference this repository and README.
 
