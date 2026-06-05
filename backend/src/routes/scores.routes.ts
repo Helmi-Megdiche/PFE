@@ -6,6 +6,7 @@ import {
   scoreTrendQuerySchema,
 } from '../validators/scores.validator';
 import { query } from '../db/pool';
+import { getChildLevel, getChildPoints } from '../services/gamificationService';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -136,7 +137,14 @@ router.get(
         return;
       }
 
-      res.json(mapScoreRow(rows[0]));
+      const totalPoints = await getChildPoints(childId);
+      const level = getChildLevel(totalPoints);
+
+      res.json({
+        ...mapScoreRow(rows[0]),
+        totalPoints,
+        level,
+      });
     } catch (err) {
       logger.error('Failed to fetch daily score', {
         childId,

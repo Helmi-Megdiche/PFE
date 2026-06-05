@@ -95,6 +95,12 @@ export async function getChildPoints(childId: string): Promise<number> {
   return rows[0]?.total_points ?? 0;
 }
 
+/** Player level from lifetime points: 1 at 0–499, 2 at 500–999, etc. */
+export function getChildLevel(totalPoints: number): number {
+  const points = Math.max(0, Math.floor(totalPoints));
+  return Math.floor(points / 500) + 1;
+}
+
 async function hasBadge(childId: string, badgeId: string): Promise<boolean> {
   const { rows } = await query<{ exists: boolean }>(
     `SELECT EXISTS(

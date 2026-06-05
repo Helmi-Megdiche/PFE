@@ -63,7 +63,12 @@ export function ProfileScreen(): React.JSX.Element {
       {loading ? (
         <ActivityIndicator />
       ) : (
-        <Text style={styles.points}>{points ?? 0}</Text>
+        <>
+          <Text style={styles.points}>{points ?? 0}</Text>
+          <Text style={styles.level}>
+            Level {Math.floor((points ?? 0) / 500) + 1}
+          </Text>
+        </>
       )}
       <Text style={styles.hint}>
         Points refresh when you open this screen or the Missions tab (pull-to-refresh). Parent
@@ -86,6 +91,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, color: '#64748b', marginTop: 16 },
   value: { fontSize: 13, color: '#0f172a', fontFamily: 'monospace' },
   points: { fontSize: 32, fontWeight: '700', color: '#2563eb', marginTop: 4 },
+  level: { fontSize: 18, fontWeight: '600', color: '#0f172a', marginTop: 8 },
   hint: { fontSize: 13, color: '#64748b', marginTop: 20, lineHeight: 20 },
   btn: {
     marginTop: 24,

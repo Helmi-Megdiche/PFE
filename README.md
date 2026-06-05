@@ -395,7 +395,9 @@ Returns raw sessions for a calendar day (defaults to today).
 
 ### `GET /api/scores/:childId?date=YYYY-MM-DD` (parent)
 
-Returns addiction and well-being scores for a date. Without `date`, returns the latest stored score.
+Returns addiction and well-being scores for a date. Without `date`, returns the latest stored score. Response also includes `totalPoints` and `level` (`floor(totalPoints / 500) + 1`).
+
+**Addiction score note:** the stored `addictionScore` includes a weekly **exposure penalty** (up to +20) from risky `screen_events` in the last 7 days (`2` points per event, capped at `20`). See [docs/scoring_formulas.md](docs/scoring_formulas.md).
 
 ### `GET /api/scores/:childId/trend?days=7` (parent)
 
@@ -483,6 +485,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **4** | 29 June – 12 July 2026 | Complete | **Missions & gamification (backend)** — mission generation from risk/scores, points, badges, parent rewards, cognitive remediation validation |
 | **4.5** | — | Complete | **Smart mission generation** — adaptive risk threshold, cumulative burst detection, category-specific templates, escalation points, 15-min cooldown |
 | **5** | — | Complete | **Gamification frontend** — React Navigation UI, parent approval / reject / bonus, escape penalty, `SYSTEM_ALERT_WINDOW` mission overlay + notification fallback, dashboard at `/demo.html`, `fetchWithAuth` POST fix |
+| **5.6** | — | Complete | **Exposure penalty + player levels** — weekly risky-event count adds up to +20 to daily addiction score; `GET /api/scores/:childId` returns `level`; Profile shows level from points |
 | **6** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
 ---

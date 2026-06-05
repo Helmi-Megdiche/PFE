@@ -166,3 +166,18 @@ export function computeWellbeingScore(stats: WellbeingStats): {
     },
   };
 }
+
+/** Weekly risky screen events → exposure penalty (max 20 pts, 2 per event). */
+export function computeExposurePenalty(weeklyRiskyCount: number): number {
+  const count = Math.max(0, Math.floor(weeklyRiskyCount));
+  return Math.min(20, count * 2);
+}
+
+/** Applies exposure penalty on top of base addiction score (capped at 100). */
+export function applyExposurePenaltyToAddictionScore(
+  baseAddictionScore: number,
+  weeklyRiskyCount: number,
+): number {
+  const penalty = computeExposurePenalty(weeklyRiskyCount);
+  return Math.min(100, Math.max(0, baseAddictionScore + penalty));
+}

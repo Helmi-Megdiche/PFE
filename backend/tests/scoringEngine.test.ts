@@ -1,5 +1,7 @@
 import {
+  applyExposurePenaltyToAddictionScore,
   computeAddictionScore,
+  computeExposurePenalty,
   computeWellbeingScore,
   type DailyUsageStats,
   type WellbeingStats,
@@ -49,6 +51,28 @@ describe('computeAddictionScore', () => {
       physicalActivityMinutes: 0,
     };
     expect(computeAddictionScore(extreme).score).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('exposure penalty', () => {
+  it('adds 2 points per weekly risky event', () => {
+    expect(computeExposurePenalty(0)).toBe(0);
+    expect(computeExposurePenalty(3)).toBe(6);
+    expect(computeExposurePenalty(10)).toBe(20);
+  });
+
+  it('caps exposure penalty at 20 points', () => {
+    expect(computeExposurePenalty(15)).toBe(20);
+    expect(computeExposurePenalty(100)).toBe(20);
+  });
+
+  it('applies penalty on top of base addiction score', () => {
+    expect(applyExposurePenaltyToAddictionScore(45, 4)).toBe(53);
+    expect(applyExposurePenaltyToAddictionScore(95, 10)).toBe(100);
+  });
+
+  it('never returns negative addiction score', () => {
+    expect(applyExposurePenaltyToAddictionScore(0, 0)).toBe(0);
   });
 });
 

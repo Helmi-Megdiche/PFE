@@ -33,7 +33,18 @@ Weighted sum of five components:
 | **Escalation** | 15% | 100 if WoW change > 20%; linear 0–100 if 0–20%; else 0 |
 | **Real imbalance** | 10% | Penalty if physical activity < `totalMinutes / 10` |
 
-**Final score:** `round(clamp(weighted sum, 0, 100))`
+**Base score:** `round(clamp(weighted sum, 0, 100))`
+
+### Exposure frequency adjustment (daily cron)
+
+After the base addiction score is computed, the daily job counts risky `screen_events` in the **last 7 days** (`risk_flag = true`) and adds an exposure penalty:
+
+| Term | Formula |
+|------|---------|
+| **Exposure penalty** | `min(20, weeklyRiskyCount × 2)` |
+| **Stored addiction score** | `min(100, baseAddictionScore + exposurePenalty)` |
+
+Component columns (`intensity`, `compulsivity`, etc.) still reflect the **base** score only; the penalty is applied only to `addiction_score` in `daily_scores`.
 
 ### Example – low risk
 

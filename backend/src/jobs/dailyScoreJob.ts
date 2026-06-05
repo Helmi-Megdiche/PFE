@@ -10,6 +10,7 @@ import {
   addictionStatsFromWellbeing,
 } from '../scoring/aggregateUsage';
 import {
+  applyExposurePenaltyToAddictionScore,
   computeAddictionScore,
   computeWellbeingScore,
 } from '../scoring/scoringEngine';
@@ -83,6 +84,20 @@ export async function computeAndStoreDailyScore(
   const addiction = computeAddictionScore(addictionStatsFromWellbeing(stats));
   const wellbeing = computeWellbeingScore(stats);
 
+  const weeklyRiskyRes = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM screen_events
+     WHERE child_id = $1
+       AND risk_flag = true
+       AND created_at > NOW() - INTERVAL '7 days'`,
+    [childId],
+  );
+  const weeklyRiskyCount = Number(weeklyRiskyRes.rows[0]?.count ?? 0);
+  const finalAddictionScore = applyExposurePenaltyToAddictionScore(
+    addiction.score,
+    weeklyRiskyCount,
+  );
+
   await query(
     `INSERT INTO daily_scores (
       child_id, score_date, addiction_score, wellbeing_score,
@@ -105,7 +120,7 @@ export async function computeAndStoreDailyScore(
     [
       childId,
       dateStr,
-      addiction.score,
+      finalAddictionScore,
       wellbeing.score,
       addiction.components.intensity,
       addiction.components.compulsivity,
@@ -123,13 +138,15 @@ export async function computeAndStoreDailyScore(
   logger.info('Daily score computed', {
     childId,
     scoreDate: dateStr,
-    addictionScore: addiction.score,
+    addictionScore: finalAddictionScore,
+    baseAddictionScore: addiction.score,
+    weeklyRiskyCount,
     wellbeingScore: wellbeing.score,
     sessionCount: sessions.length,
   });
 
   return {
-    addictionScore: addiction.score,
+    addictionScore: finalAddictionScore,
     wellbeingScore: wellbeing.score,
   };
 }

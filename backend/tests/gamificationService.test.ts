@@ -3,6 +3,7 @@ import {
   ageMatchesRange,
   checkAndAwardBadges,
   deductPoints,
+  getChildLevel,
   getChildPoints,
   parseAgeRange,
 } from '../src/services/gamificationService';
@@ -50,6 +51,21 @@ describe('gamificationService', () => {
       expect.stringContaining('INSERT INTO child_points'),
       ['child-1', 25],
     );
+  });
+
+  it('getChildLevel returns 1 for 0–499 points', () => {
+    expect(getChildLevel(0)).toBe(1);
+    expect(getChildLevel(499)).toBe(1);
+  });
+
+  it('getChildLevel increases every 500 points', () => {
+    expect(getChildLevel(500)).toBe(2);
+    expect(getChildLevel(999)).toBe(2);
+    expect(getChildLevel(1000)).toBe(3);
+  });
+
+  it('getChildLevel treats negative points as level 1', () => {
+    expect(getChildLevel(-10)).toBe(1);
   });
 
   it('getChildPoints returns 0 when no row exists', async () => {
