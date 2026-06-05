@@ -12,15 +12,6 @@ The React Native bridge loads this asset via native module `NsfwTflite` (not `re
 
 **Input:** 224×224 RGB, mean-subtracted BGR channels (104, 117, 123) — same as `flutter_nude_checker`.
 
-## Optional 5-class model (training pipeline)
-
-| File | Purpose |
-|------|---------|
-| `nsfw_detector.tflite` | EfficientNetV2B0 fine-tuned on NSFW Data Scraper (see `training/README_FINETUNE.md`) |
-| `labels.txt` | Class order: drawings, hentai, neutral, porn, sexy |
-
-Copy trained artifacts from `training/out/` into `android/app/src/main/assets/models/` and switch the native module if you replace the Yahoo model.
-
 ## Rebuild after adding/changing models
 
 ```bash

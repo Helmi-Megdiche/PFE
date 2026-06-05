@@ -3,11 +3,13 @@ node_modules/
 
 # Environment & secrets
 .env
+backend/.env
 .env.local
 .env.*.local
 
 # Build outputs
 dist/
+backend/dist/
 build/
 *.log
 
@@ -35,9 +37,10 @@ coverage/
 # Tesseract language data (large binaries)
 *.traineddata
 
-# Python (training scripts)
-training/.venv/
-training/out/
+# Local archives / removed training pipeline
+training/
+
+# Python artifacts
 __pycache__/
 *.pyc
 *.h5

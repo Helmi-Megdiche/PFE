@@ -1,9 +1,0 @@
-tensorflow==2.15.0
-numpy>=1.23,<2.0
-matplotlib>=3.7,<4
-pillow>=10,<11
-scipy>=1.10,<2
-nvidia-cuda-nvcc-cu12==12.2.140
-gdown>=4.7
-tqdm>=4.65
-requests>=2.28

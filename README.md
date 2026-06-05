@@ -475,7 +475,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **3.5** | — | Complete | **Debug & foreground** — `POST /api/debug/classify` (backend nsfwjs + Tesseract OCR), `demo_dashboard.html`, `ForegroundAppModule` (UsageStats), shared `riskMapping.ts` (mobile + backend), `app_label` migration |
 | **3.6** | — | Complete | **Accuracy improvements** — expanded ML Kit mapping (weapons, drugs, gore, adult, hentai proxy), `enforceCategoryConsistency`, explicit OCR boosts & overrides, `nsfwClassifier` proxy (no tfjs on device) |
 | **3.7** | — | Complete | **Adaptive capture** — immediate capture on app switch, follow-up after 5s, risk-based dynamic intervals (10s / 30s / 60s from rolling average of last 3 scores), 5s debounce |
-| **3.8** | — | Complete | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite`. See [`training/README_FINETUNE.md`](training/README_FINETUNE.md) |
+| **3.8** | — | Complete | **NSFW model training** — fine-tune EfficientNetV2B0 on the NSFW Data Scraper dataset (5 classes), export quantized `.tflite` (training pipeline archived locally; repo ships Yahoo Open NSFW from Sprint 3.9) |
 | **3.9** | — | Complete | **On-device NSFW TFLite** — Yahoo Open NSFW `nsfw.tflite` via native `NsfwTflite` module (RN 0.74–compatible), replaces ML Kit heuristic proxy for adult score |
 | **3.10** | — | Complete | **Multilingual OCR (FR / AR / Derja)** — French + Arabic + Tunisian Derja Arabizi keyword lists, `normalizeArabizi.ts` (digit-letter → quasi-Arabic), `mixedScriptOcr.ts` (ML Kit primary + graceful Tesseract `ara+fra+eng` fallback), normalized-text channel in `keywordFilter` |
 | **3.11** | — | Complete | **Foreground app accuracy** — UsageEvents window 15s→120s, UsageStats recency filter (5s), capture-time 3× retry (200ms), 15s cache TTL, skip System UI / launcher; fixes Instagram sticking when switching to Messenger |
@@ -526,28 +526,6 @@ ORDER BY timestamp DESC
 LIMIT 10;
 ```
 
----
-
-## NSFW model training (WSL2, Sprint 3.8)
-
-Fine-tune **EfficientNetV2B0** on the [NSFW Data Scraper](https://github.com/alex000kim/nsfw_data_scraper) dataset and export a quantized `.tflite` (optional replacement for the bundled Yahoo model on device).
-
-| Script | Purpose |
-|--------|---------|
-| [`training/README_FINETUNE.md`](training/README_FINETUNE.md) | Full pipeline guide |
-| [`training/run_full_pipeline.sh`](training/run_full_pipeline.sh) | Download → inspect → train → copy to `MobileApp` assets |
-| [`training/download_images.py`](training/download_images.py) | Parallel download from `urls_*.txt` |
-| [`training/train_nsfw.py`](training/train_nsfw.py) | Two-phase training + TFLite export |
-
-```bash
-# WSL Ubuntu — conda env nsfw-gpu, GPU recommended
-cd /mnt/c/Users/helmi/OneDrive/Documents/GitHub/PFE/training
-bash run_full_pipeline.sh
-# Quick test: DOWNLOAD_LIMIT=100 bash run_full_pipeline.sh
-```
-
-**Note:** The child app currently ships **Yahoo Open NSFW** `nsfw.tflite` (Sprint 3.9). The trained 5-class model is produced under `training/out/` (gitignored via `training/.gitignore`).
-
 **Debug upload vs device:** `POST /api/debug/classify` and `demo_dashboard.html` use **backend nsfwjs + Tesseract** — not the on-device TFLite pipeline. Use `screen_events` / Metro `[NSFW] TFLite` logs for real monitoring scores.
 
 ---
@@ -569,7 +547,7 @@ The on-device OCR path now covers **English + French + Arabic + Tunisian Derja A
 
 **Android OCR flow:** ML Kit runs first on every frame. Tesseract (`ara`) runs **after** ML Kit only when `arabicOcrTrigger.ts` detects Arabic script or garbled Latin from Arabic pages — **not** on English-dominant screens (e.g. Chrome on adult sites). If Tesseract hallucinates Arabic over substantial Latin ML Kit text, the pipeline keeps ML Kit output for keyword matching. Messaging apps skip Tesseract unless ML Kit already saw Arabic Unicode (Latin Derja stays on ML Kit + normalisation).
 
-**Platform note:** on-device Arabic Tesseract is currently enabled on **Android only**. iOS gracefully falls back to ML Kit-only OCR.
+**Platform note:** the child app targets **Android only**; on-device Arabic Tesseract runs on Android via `@devinikhiya/react-native-tesseractocr`.
 
 ### Debug only (server — demo / supervisor)
 
@@ -698,7 +676,14 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | **Smart difficulty** | Age baseline (`<10` easy, `≥13` hard) + on-device performance store (`gameStats.ts`); strong runs escalate one step; N-back level persists across missions |
 | **Points refresh** | Pull on focus / pull-to-refresh; optional 60s poll on Missions & Profile (no push) |
 
-**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications.
+**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Edit root [`demo_dashboard.html`](demo_dashboard.html), then sync:
+
+```bash
+cd backend
+npm run sync:demo
+```
+
+**For browser notifications, use the backend URL** — `file://` may block notifications.
 
 Two tabs:
 
@@ -829,4 +814,4 @@ This project is developed for **educational purposes** as part of the ESPRIT PFE
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
 **Last updated:** 5 June 2026  
-**Status:** Sprint 5.8 complete — dynamic wellbeing proxies, child interests, mission personalization; Sprint 5.7 parent dashboard; on-device OCR + TFLite NSFW (Sprint 3.14).
+**Status:** v1.0-final — Android-only child app; training pipeline and iOS scaffold removed from repo; Sprint 5.8 wellbeing proxies + interests; parent dashboard with `npm run sync:demo`.
