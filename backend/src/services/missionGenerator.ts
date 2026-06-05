@@ -213,7 +213,17 @@ export interface PickMissionInput {
   recentTemplateKeys: string[];
   /** Parent-defined real-world missions merged into selection pools. */
   customMissions?: CustomMissionCandidate[];
+  /** Parent-managed interests — used only as tie-breaker within a candidate pool. */
+  interests?: string[];
 }
+
+export const INTEREST_TAG_MAP: Record<string, string[]> = {
+  sports: ['physical_activity'],
+  art: ['kindness_mission', 'positive_communication'],
+  reading: ['quiz_safety', 'educational_relationships', 'conflict_resolution_quiz'],
+  family: ['family_interaction', 'parent_discussion', 'safety_talk'],
+  brain: ['nback', 'tower', 'sudoku', 'reaction'],
+};
 
 type PickedCandidate = { key: string; custom?: CustomMissionCandidate };
 
@@ -238,14 +248,57 @@ function extendWithCustomMissions(
   ];
 }
 
+function candidateMatchesInterests(
+  candidate: PickedCandidate,
+  interests: string[],
+): boolean {
+  if (!interests.length) {
+    return false;
+  }
+  for (const interest of interests) {
+    const tags = INTEREST_TAG_MAP[interest];
+    if (!tags) {
+      continue;
+    }
+    if (tags.includes(candidate.key)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function pickCandidate(
   keys: string[],
   recent: string[],
   customMissions?: CustomMissionCandidate[],
+  interests?: string[],
 ): PickedCandidate {
   const pool = extendWithCustomMissions(keys, customMissions);
   const fresh = pool.filter((p) => !recent.includes(p.key));
-  return pickRandom(fresh.length > 0 ? fresh : pool);
+  const working = fresh.length > 0 ? fresh : pool;
+
+  if (interests?.length) {
+    const matched = working.filter((c) => candidateMatchesInterests(c, interests));
+    if (matched.length > 0) {
+      return pickRandom(matched);
+    }
+  }
+
+  return pickRandom(working);
+}
+
+export async function getChildInterests(childId: string): Promise<string[]> {
+  const { rows } = await query<{ interests: unknown }>(
+    `SELECT interests FROM children WHERE id = $1 LIMIT 1`,
+    [childId],
+  );
+  const raw = rows[0]?.interests;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().toLowerCase());
 }
 
 function buildTemplateFromPick(
@@ -322,6 +375,7 @@ export function pickMissionTemplate(input: PickMissionInput): {
 } {
   const recent = input.recentTemplateKeys;
   const custom = input.customMissions;
+  const interests = input.interests ?? [];
   let picked: PickedCandidate;
 
   if (input.triggerReason === 'high_addiction' || input.addictionScore > 70) {
@@ -329,12 +383,14 @@ export function pickMissionTemplate(input: PickMissionInput): {
       ['nback', 'tower', 'digital_detox'],
       recent,
       custom,
+      interests,
     );
   } else if (input.triggerReason === 'low_wellbeing' || input.wellbeingScore < 40) {
     picked = pickCandidate(
       ['physical_activity', 'family_interaction'],
       recent,
       custom,
+      interests,
     );
   } else if (
     input.triggerReason === 'risky_content' ||
@@ -343,12 +399,13 @@ export function pickMissionTemplate(input: PickMissionInput): {
     const normalized = normalizeRiskCategory(input.category);
     const templateKeys =
       RISK_CATEGORY_TEMPLATES[normalized] ?? RISK_CATEGORY_TEMPLATES.default;
-    picked = pickCandidate(templateKeys, recent, custom);
+    picked = pickCandidate(templateKeys, recent, custom, interests);
   } else {
     picked = pickCandidate(
       ['physical_activity', 'family_interaction', 'tictactoe', 'sudoku'],
       recent,
       custom,
+      interests,
     );
   }
 
@@ -401,11 +458,12 @@ export async function generateMissionForChild(
     return { created: false, reason: 'pending_limit_reached' };
   }
 
-  const [age, recentScores, history, parentId] = await Promise.all([
+  const [age, recentScores, history, parentId, interests] = await Promise.all([
     getChildAge(childId),
     getChildRecentScores(childId),
     getChildMissionHistory(childId, 5),
     getChildParentId(childId),
+    getChildInterests(childId),
   ]);
 
   const customMissions = parentId
@@ -425,6 +483,7 @@ export async function generateMissionForChild(
     age,
     recentTemplateKeys: extractTemplateKeys(history),
     customMissions,
+    interests,
   });
 
   let template =

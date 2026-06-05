@@ -238,6 +238,19 @@
         <span id="childAgeWrap" class="text-slate-500"> · Age —</span>
       </p>
       <p class="text-xs text-slate-400 mt-1 font-mono" id="childIdDisplay">—</p>
+      <div class="mt-4 pt-4 border-t border-slate-100">
+        <h3 class="text-sm font-semibold mb-2">Child interests</h3>
+        <p class="text-xs text-slate-500 mb-2">Comma-separated: sports, art, reading, family, brain</p>
+        <div class="flex flex-wrap gap-2 items-center">
+          <input type="text" id="interestsInput" placeholder="e.g. sports, reading"
+            class="flex-1 min-w-[12rem] border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          <button type="button" id="saveInterestsBtn"
+            class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+            Save interests
+          </button>
+        </div>
+        <p id="interestsStatus" class="text-sm mt-2 text-slate-500"></p>
+      </div>
       <p class="text-xs text-slate-400 mt-2">
         For browser notifications, open via
         <code class="bg-slate-100 px-1 rounded">http://localhost:3000/demo.html</code> (not <code>file://</code>).
@@ -810,6 +823,47 @@
         return data.badges || [];
       }
 
+      const ALLOWED_INTERESTS = ['sports', 'art', 'reading', 'family', 'brain'];
+
+      async function loadInterests() {
+        const id = childId();
+        if (!id) return;
+        try {
+          const res = await fetchWithAuth(`/child/interests/${id}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          $('interestsInput').value = (data.interests || []).join(', ');
+        } catch (err) {
+          console.warn('Failed to load interests', err);
+        }
+      }
+
+      async function saveInterests() {
+        const id = childId();
+        const raw = $('interestsInput').value;
+        const interests = raw
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter((s) => ALLOWED_INTERESTS.includes(s));
+        try {
+          const res = await fetchWithAuth('/child/interests', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ childId: id, interests }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'HTTP ' + res.status);
+          }
+          $('interestsStatus').textContent = 'Interests saved!';
+          showToast('ok', 'Interests saved');
+          setTimeout(() => { $('interestsStatus').textContent = ''; }, 3000);
+        } catch (err) {
+          $('interestsStatus').textContent = 'Save failed';
+          showToast('error', err.message || 'Save failed');
+        }
+      }
+
       function renderLatestScores(scoreRow, pointsRow) {
         const addictionEl = $('cardAddiction');
         const wellbeingEl = $('cardWellbeing');
@@ -1220,6 +1274,7 @@
           renderCustomMissions(customMissions);
           renderLatestScores(latestScore, points);
           renderBadges(badges);
+          await loadInterests();
           $('bonusCurrentPoints').textContent = String(points.totalPoints ?? '—');
           $('cardTotalPoints').textContent = String(points.totalPoints ?? '—');
           checkBrowserNotifications(missions);
@@ -1452,7 +1507,12 @@
 
       $('childId').addEventListener('change', () => {
         renderChildProfile();
+        void loadInterests();
         refreshAll();
+      });
+
+      $('saveInterestsBtn').addEventListener('click', () => {
+        void saveInterests();
       });
 
       document.querySelectorAll('#tabBar .tab-btn').forEach((btn) => {

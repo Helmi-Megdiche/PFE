@@ -19,6 +19,12 @@ import {
   generateMissionFromHighAddiction,
   generateMissionFromLowWellbeing,
 } from '../services/missionGenerator';
+import {
+  fetchBedtimeVarianceMinutes,
+  fetchFamilyInteractionCount,
+  fetchPhysicalActivityMinutes,
+  fetchRecommendedScreenMinutes,
+} from '../scoring/wellbeingProxies';
 
 interface ChildRow {
   id: string;
@@ -74,11 +80,23 @@ export async function computeAndStoreDailyScore(
     lastWeekMinutes,
   );
 
+  const [
+    physicalActivityMinutes,
+    bedtimeVarianceMinutes,
+    familyCallsMessages,
+    recommendedScreenMinutes,
+  ] = await Promise.all([
+    fetchPhysicalActivityMinutes(childId, scoreDate),
+    fetchBedtimeVarianceMinutes(childId, scoreDate),
+    fetchFamilyInteractionCount(childId, scoreDate),
+    fetchRecommendedScreenMinutes(childId),
+  ]);
+
   const stats = buildDailyStats(dayAggregate, wow, {
-    physicalActivityMinutes: 0,
-    bedtimeVarianceMinutes: 30,
-    familyCallsMessages: 0,
-    recommendedScreenMinutes: 180,
+    physicalActivityMinutes,
+    bedtimeVarianceMinutes,
+    familyCallsMessages,
+    recommendedScreenMinutes,
   });
 
   const addiction = computeAddictionScore(addictionStatsFromWellbeing(stats));
@@ -143,6 +161,10 @@ export async function computeAndStoreDailyScore(
     weeklyRiskyCount,
     wellbeingScore: wellbeing.score,
     sessionCount: sessions.length,
+    physicalActivityMinutes,
+    bedtimeVarianceMinutes,
+    familyCallsMessages,
+    recommendedScreenMinutes,
   });
 
   return {

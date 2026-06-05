@@ -63,6 +63,25 @@ const mockedCumulativeRisk = getCumulativeRisk as jest.Mock;
 const mockedRiskyCount24h = countRiskyMissionsLast24h as jest.Mock;
 const mockedRecentRisky = hasRecentRiskyMission as jest.Mock;
 
+function getMissionInsertArgs(): unknown[] {
+  const insertCall = mockedQuery.mock.calls.find(
+    (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO missions'),
+  );
+  if (!insertCall) {
+    throw new Error('No mission INSERT query found');
+  }
+  return insertCall[1] as unknown[];
+}
+
+function mockQueryWithInterests(): void {
+  mockedQuery.mockImplementation((sql: string) => {
+    if (typeof sql === 'string' && sql.includes('SELECT interests')) {
+      return Promise.resolve({ rows: [{ interests: [] }] });
+    }
+    return Promise.resolve({ rows: [{ id: 'mission-1' }], rowCount: 1 });
+  });
+}
+
 describe('normalizeRiskCategory', () => {
   it('maps aliases to normalized keys', () => {
     expect(normalizeRiskCategory('adult')).toBe('adult');
@@ -231,6 +250,60 @@ describe('pickMissionTemplate', () => {
     expect(template.title).toBe('Walk the dog');
     expect(template.metadata.customMissionId).toBe('custom-1');
   });
+
+  it('prefers physical_activity when sports interest is set (low wellbeing tie-break)', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'low_wellbeing',
+      triggerScore: 25,
+      addictionScore: 40,
+      wellbeingScore: 25,
+      age: 12,
+      recentTemplateKeys: [],
+      interests: ['sports'],
+    });
+    expect(key).toBe('physical_activity');
+  });
+
+  it('prefers family_interaction when family interest is set (low wellbeing tie-break)', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'low_wellbeing',
+      triggerScore: 25,
+      addictionScore: 40,
+      wellbeingScore: 25,
+      age: 12,
+      recentTemplateKeys: [],
+      interests: ['family'],
+    });
+    expect(key).toBe('family_interaction');
+  });
+
+  it('prefers brain templates when brain interest is set (high addiction tie-break)', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'high_addiction',
+      triggerScore: 85,
+      addictionScore: 85,
+      wellbeingScore: 50,
+      age: 14,
+      recentTemplateKeys: [],
+      interests: ['brain'],
+    });
+    expect(['nback', 'tower']).toContain(key);
+  });
+
+  it('does not let interests override addiction priority over risky content', () => {
+    const { key } = pickMissionTemplate({
+      triggerReason: 'risky_content',
+      triggerScore: 85,
+      addictionScore: 85,
+      wellbeingScore: 60,
+      combinedRiskScore: 85,
+      category: 'adult',
+      age: 14,
+      recentTemplateKeys: [],
+      interests: ['sports'],
+    });
+    expect(['nback', 'tower', 'digital_detox']).toContain(key);
+  });
 });
 
 describe('generateMissionForChild', () => {
@@ -245,7 +318,7 @@ describe('generateMissionForChild', () => {
       date: '2026-05-29',
     });
     mockedGetHistory.mockResolvedValue([]);
-    mockedQuery.mockResolvedValue({ rows: [{ id: 'mission-1' }], rowCount: 1 });
+    mockQueryWithInterests();
   });
 
   it('does not create mission when pending limit reached', async () => {
@@ -322,7 +395,7 @@ describe('generateMissionForChild', () => {
       },
     );
 
-    const insertArgs = mockedQuery.mock.calls[0][1];
+    const insertArgs = getMissionInsertArgs();
     expect(insertArgs[3]).toBe(Math.ceil(30 * 1.3));
     const metadata = JSON.parse(insertArgs[5] as string);
     expect(metadata.basePoints).toBe(30);
@@ -345,7 +418,12 @@ describe('generateMissionFromRisk', () => {
       date: '2026-05-29',
     });
     mockedGetHistory.mockResolvedValue([]);
-    mockedQuery.mockResolvedValue({ rows: [{ id: 'risk-mission' }], rowCount: 1 });
+    mockedQuery.mockImplementation((sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SELECT interests')) {
+        return Promise.resolve({ rows: [{ interests: [] }] });
+      }
+      return Promise.resolve({ rows: [{ id: 'risk-mission' }], rowCount: 1 });
+    });
   });
 
   it('creates mission when score exceeds adaptive threshold', async () => {
@@ -388,7 +466,7 @@ describe('generateMissionFromRisk', () => {
   it('applies escalation after 3 prior risky missions in 24h', async () => {
     mockedRiskyCount24h.mockResolvedValue(3);
     await generateMissionFromRisk('child-1', 75, 'adult');
-    const insertArgs = mockedQuery.mock.calls[0][1];
+    const insertArgs = getMissionInsertArgs();
     expect(insertArgs[3]).toBe(Math.ceil(30 * 1.3));
   });
 });
@@ -399,7 +477,12 @@ describe('expireStaleMissions integration', () => {
     mockedGetChildAge.mockResolvedValue(null);
     mockedGetRecentScores.mockResolvedValue(null);
     mockedGetHistory.mockResolvedValue([]);
-    mockedQuery.mockResolvedValue({ rows: [{ id: 'm2' }], rowCount: 1 });
+    mockedQuery.mockImplementation((sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SELECT interests')) {
+        return Promise.resolve({ rows: [{ interests: [] }] });
+      }
+      return Promise.resolve({ rows: [{ id: 'm2' }], rowCount: 1 });
+    });
 
     await generateMissionForChild('child-2', { type: 'risky_content', score: 90 });
 
