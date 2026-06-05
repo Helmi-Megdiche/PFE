@@ -20,7 +20,7 @@ import {
   enforceCategoryConsistency,
   resolveFinalCategoryWithScore,
 } from '../utils/riskCombination';
-import { isFilteredSearchResultsContext } from '../utils/riskySearchContext';
+import { shouldCapFilteredSearchResults } from '../utils/riskySearchContext';
 import {
   computeAdaptiveIntervalMs,
   computeEffectiveAdaptiveInterval,
@@ -70,6 +70,10 @@ const SYSTEM_UI_PACKAGE = 'com.android.systemui';
 
 /** Max age for cached foreground package when live lookup fails at capture time. */
 const FOREGROUND_CACHE_MAX_AGE_MS = 15_000;
+/** After a mission ends, reuse pre-pause Chrome/browser package if UsageStats is briefly null. */
+const MISSION_FOREGROUND_GRACE_MS = 120_000;
+/** OCR + TFLite must finish within this window (Arabic Tesseract timeout is 25s). */
+const VISION_PIPELINE_TIMEOUT_MS = 30_000;
 
 function isUsableForegroundPackage(pkg: string | null | undefined): pkg is string {
   if (!pkg || pkg === 'unknown' || pkg === SYSTEM_UI_PACKAGE) {
@@ -126,6 +130,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const lastCaptureMsRef = useRef(0);
   const lastAppPackageRef = useRef<string | null>(null);
   const lastAppPackageUpdatedAtRef = useRef(0);
+  const missionEndedAtRef = useRef(0);
+  const foregroundAtPauseRef = useRef<string | null>(null);
 
   const riskHistoryRef = useRef<number[]>([]);
   const dynamicIntervalMsRef = useRef(RISK_INTERVAL_LOW_MS);
@@ -350,16 +356,30 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         const fgPackage = isUsableForegroundPackage(fg.packageName) ? fg.packageName : null;
         const eventPackage = isUsableForegroundPackage(appPackage) ? appPackage : null;
         const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
-        const cachedPackage =
-          isUsableForegroundPackage(lastAppPackageRef.current) &&
-          cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS
-            ? lastAppPackageRef.current
-            : null;
+        const cacheFresh = cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS;
+        const missionGraceActive =
+          missionEndedAtRef.current > 0 &&
+          Date.now() - missionEndedAtRef.current < MISSION_FOREGROUND_GRACE_MS;
+        const gracePackage =
+          missionGraceActive && isUsableForegroundPackage(foregroundAtPauseRef.current)
+            ? foregroundAtPauseRef.current
+            : missionGraceActive && isUsableForegroundPackage(lastAppPackageRef.current)
+              ? lastAppPackageRef.current
+              : null;
 
-        if (
+        let cachedPackage: string | null = null;
+        if (isUsableForegroundPackage(lastAppPackageRef.current) && cacheFresh) {
+          cachedPackage = lastAppPackageRef.current;
+        } else if (gracePackage && !fgPackage) {
+          cachedPackage = gracePackage;
+          scLog('Foreground cache reused — post-mission grace', {
+            package: gracePackage,
+            cacheAgeMs,
+          });
+        } else if (
           !fgPackage &&
           isUsableForegroundPackage(lastAppPackageRef.current) &&
-          cacheAgeMs > FOREGROUND_CACHE_MAX_AGE_MS
+          !cacheFresh
         ) {
           scWarn('Foreground cache stale — live lookup failed; not reusing old app', {
             cached: lastAppPackageRef.current,
@@ -395,10 +415,23 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         });
         setLastForegroundApp(resolvedPackage);
 
-        const [ocrMixed, imageClassification] = await Promise.all([
-          extractTextMixed(ocrInput, { filePath, appPackage: resolvedPackage }),
-          classifyImage(ocrInput, filePath),
-        ]);
+        const visionResult = await withTimeout(
+          Promise.all([
+            extractTextMixed(ocrInput, { filePath, appPackage: resolvedPackage }),
+            classifyImage(ocrInput, filePath),
+          ]),
+          VISION_PIPELINE_TIMEOUT_MS,
+          null,
+        );
+
+        if (!visionResult) {
+          scWarn('Vision pipeline timed out — frame skipped', {
+            timeoutMs: VISION_PIPELINE_TIMEOUT_MS,
+          });
+          return { success: false, skippedReason: 'vision_timeout' };
+        }
+
+        const [ocrMixed, imageClassification] = visionResult;
 
         const fullText = ocrMixed.text ?? '';
         const cleanedForKeywords = ocrMixed.cleanedText ?? fullText;
@@ -440,12 +473,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           imageClassification.imageClassificationDetails?.imageRiskScore ??
           imageClassification.imageRiskScore;
 
-        const cleanedLower = cleanedForKeywords.toLowerCase();
         const tfliteNsfwScore = imageClassification.imageRiskScore;
         let combinedRiskScore: number;
         let postProcessedCategory: string;
 
-        if (isFilteredSearchResultsContext(cleanedLower) && tfliteNsfwScore < 30) {
+        if (shouldCapFilteredSearchResults(cleanedForKeywords, tfliteNsfwScore)) {
           scLog('[Risk] Filtered UI + low TFLite — capping final combined risk');
           imageRiskScore = Math.min(imageRiskScore, 20);
           combinedRiskScore = Math.min(combineRiskScores(ocrRiskScore, imageRiskScore), 25);
@@ -575,7 +607,12 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
             });
           }
         } else if (screenEventResponse.missionGeneration) {
-          scLog('No new mission', screenEventResponse.missionGeneration);
+          scLog(
+            finalRiskFlag ? 'Risky capture — no mission overlay' : 'No new mission',
+            screenEventResponse.missionGeneration,
+          );
+        } else if (finalRiskFlag) {
+          scLog('Risky capture — no mission in API response', { combinedRiskScore });
         }
         setLastCaptureAt(payload.timestamp);
         lastCaptureMsRef.current = Date.now();
@@ -793,6 +830,9 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     if (Platform.OS !== 'android' || !isMonitoring) {
       return;
     }
+    if (isUsableForegroundPackage(lastAppPackageRef.current)) {
+      foregroundAtPauseRef.current = lastAppPackageRef.current;
+    }
     clearAdaptiveTimers();
     try {
       await getScreenCaptureModule().pauseCapture();
@@ -809,14 +849,16 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       return;
     }
     try {
+      missionEndedAtRef.current = Date.now();
       await getScreenCaptureModule().resumeCapture();
       setIsPaused(false);
       scLog('resumeCapture OK');
+      void refreshForegroundCache();
     } catch (err) {
       scError('resumeCapture failed', err);
       setLastError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [refreshForegroundCache]);
 
   useEffect(() => {
     registerMissionCaptureHandlers(pauseCapture, resumeCapture);

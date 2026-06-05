@@ -1,13 +1,26 @@
-import { applyRiskySearchBoost, isRiskyWebSearchContext, isRiskyViolentWebSearchContext } from '../src/utils/riskySearchContext';
+import {
+  applyRiskySearchBoost,
+  hasExplicitSearchBoxQuery,
+  isFilteredSearchResultsContext,
+  isRiskyWebSearchContext,
+  isRiskyViolentWebSearchContext,
+  shouldCapFilteredSearchResults,
+} from '../src/utils/riskySearchContext';
 import { keywordFilter } from '../src/utils/keywordFilter';
 
 describe('riskySearchContext', () => {
-  it('detects explicit google search queries', () => {
-    const text = 'BASIC Mode IA Tous Images nsfw assir google.com/sear';
+  it('detects explicit google search queries in the search box on filtered SERP', () => {
+    const text = 'BASIC + Q nsfw Mode IA Tous Images google.com/sear';
     expect(isRiskyWebSearchContext(text)).toBe(true);
     const result = keywordFilter(text);
     expect(result.riskFlag).toBe(true);
     expect(result.category).toBe('adult');
+  });
+
+  it('does not treat body-only nsfw on Mode IA SERP as explicit search', () => {
+    const text = 'BASIC Mode IA Tous Images nsfw assir google.com/sear';
+    expect(isRiskyWebSearchContext(text)).toBe(false);
+    expect(shouldCapFilteredSearchResults(text, 4)).toBe(true);
   });
 
   it('does not boost Fiverr SafeSearch settings UI', () => {
@@ -32,13 +45,27 @@ describe('riskySearchContext', () => {
     expect(keywordFilter(text).riskFlag).toBe(false);
   });
 
-  it('boosts violent google image search for gore', () => {
-    const text = 'Mode IA Tous Images gore google.com/sear blood results';
+  it('boosts violent google image search when gore is in the search box', () => {
+    const text = 'Mode IA Tous Images + Q gore google.com/sear blood results';
     expect(isRiskyViolentWebSearchContext(text)).toBe(true);
     const result = keywordFilter(text);
     expect(result.riskFlag).toBe(true);
     expect(result.category).toBe('violent');
     expect(result.matchedKeywords).toContain('gore');
+  });
+
+  it('caps Mode IA SERP when body has porn keywords but search box does not', () => {
+    const text =
+      '14:00 google.com/sear Mode IA Tous Images youporn porno streaming titles';
+    expect(isFilteredSearchResultsContext(text.toLowerCase())).toBe(true);
+    expect(hasExplicitSearchBoxQuery(text)).toBe(false);
+    expect(shouldCapFilteredSearchResults(text, 4)).toBe(true);
+  });
+
+  it('does not cap filtered SERP when search box has explicit Q porn query', () => {
+    const text = 'google.com/sear + Q porn Mode IA Flouter censored results';
+    expect(hasExplicitSearchBoxQuery(text)).toBe(true);
+    expect(shouldCapFilteredSearchResults(text, 4)).toBe(false);
   });
 
   it('applyRiskySearchBoost forces adult when search context matches', () => {

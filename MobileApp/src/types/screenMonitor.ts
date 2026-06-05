@@ -36,7 +36,14 @@ export interface ScreenshotCaptureConfig {
 
 export interface CaptureCycleResult {
   success: boolean;
-  skippedReason?: 'battery' | 'idle' | 'permission' | 'storage' | 'ocr' | 'mission';
+  skippedReason?:
+    | 'battery'
+    | 'idle'
+    | 'permission'
+    | 'storage'
+    | 'ocr'
+    | 'mission'
+    | 'vision_timeout';
   event?: ScreenEventPayload;
   error?: string;
 }

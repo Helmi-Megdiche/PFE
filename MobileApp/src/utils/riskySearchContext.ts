@@ -9,22 +9,43 @@ const ADULT_EXPLICIT_QUERY_RE = /\b(nsfw|porn|xxx|nude|hentai|sex\s*tape)\b/i;
 const VIOLENT_EXPLICIT_QUERY_RE =
   /\b(gore|gory|blood|murder|kill|massacre|behead|dismember|mutilation|corpse|brutal|shooting|school\s*shooting)\b/i;
 
+/** Chrome / Google search-box OCR (e.g. "+ Q porn", "Q gore") — not body result titles. */
+const ADULT_SEARCH_BOX_QUERY_RE =
+  /(?:^|[\s+])q\s+(?:nsfw|porn|xxx|nude|hentai|sex\s*tape)\b/i;
+
+const VIOLENT_SEARCH_BOX_QUERY_RE =
+  /(?:^|[\s+])q\s+(?:gore|gory|blood|murder|kill|massacre|behead|dismember|mutilation|corpse|brutal|shooting|school\s*shooting)\b/i;
+
+export function hasExplicitSearchBoxQuery(text: string): boolean {
+  const lower = text.toLowerCase();
+  return ADULT_SEARCH_BOX_QUERY_RE.test(lower) || VIOLENT_SEARCH_BOX_QUERY_RE.test(lower);
+}
+
 /** SafeSearch / censored filter UI on a search results page — not an active explicit search. */
 export function isFilteredSearchResultsContext(lower: string): boolean {
   if (!SEARCH_HOST_RE.test(lower)) {
     return false;
   }
-  const hasFilterUi = /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode|flouter|mode\s*ia|flou)\b/i.test(
+  const hasFilterUi = /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode|flouter|mode\s*ia|flou|recherche\s*sécurisée|recherche\s*securisee)\b/i.test(
     lower,
   );
   if (!hasFilterUi) {
     return false;
   }
-  // Blur / SafeSearch chrome with an explicit query (e.g. "porn") is still enforcement.
-  if (ADULT_EXPLICIT_QUERY_RE.test(lower) || VIOLENT_EXPLICIT_QUERY_RE.test(lower)) {
-    return false;
-  }
   return true;
+}
+
+/**
+ * Cap combined risk on filtered SERPs when TFLite is low and the child did not
+ * type an explicit query in the search box (body keywords like youporn are ignored).
+ */
+export function shouldCapFilteredSearchResults(text: string, tfliteScore: number): boolean {
+  const lower = text.toLowerCase();
+  return (
+    isFilteredSearchResultsContext(lower) &&
+    tfliteScore < 30 &&
+    !hasExplicitSearchBoxQuery(lower)
+  );
 }
 
 function isSearchHostContext(text: string): boolean {
@@ -35,7 +56,7 @@ function isSearchHostContext(text: string): boolean {
 export function isRiskyAdultWebSearchContext(text: string): boolean {
   const lower = text.toLowerCase();
   if (isFilteredSearchResultsContext(lower)) {
-    return false;
+    return isSearchHostContext(text) && ADULT_SEARCH_BOX_QUERY_RE.test(lower);
   }
   return isSearchHostContext(text) && ADULT_EXPLICIT_QUERY_RE.test(lower);
 }
@@ -44,7 +65,7 @@ export function isRiskyAdultWebSearchContext(text: string): boolean {
 export function isRiskyViolentWebSearchContext(text: string): boolean {
   const lower = text.toLowerCase();
   if (isFilteredSearchResultsContext(lower)) {
-    return false;
+    return isSearchHostContext(text) && VIOLENT_SEARCH_BOX_QUERY_RE.test(lower);
   }
   return isSearchHostContext(text) && VIOLENT_EXPLICIT_QUERY_RE.test(lower);
 }

@@ -131,6 +131,10 @@ The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` p
 
 **Launcher recents bleed:** when the foreground app is the home launcher but OCR is from a **Chrome recent card** (pornhub thumbnail on MIUI home), the event is stored as **neutral** — enforcement applies when the child opens Chrome (`com.android.chrome` foreground).
 
+**Filtered SERP cap:** on Google/Bing/DuckDuckGo pages with SafeSearch / **Mode IA** / **Flouter** UI and TFLite &lt; 30, combined risk is capped (~24) unless OCR shows an explicit **search-box** query (`Q porn`, `+ Q nsfw`, etc.). Body-only keywords in result titles (e.g. youporn) do not bypass the cap.
+
+**Post-mission capture:** when a blocking mission ends, foreground package is **snapshotted on pause** and may be reused for **120s** if UsageStats briefly returns `unknown` after resume; `resumeCapture` also **refreshes** the foreground cache. OCR + TFLite are capped at **30s** per frame (`vision_timeout` skip) so `isProcessing` cannot block the pipeline after long overlays.
+
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
 Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, `MobileApp/src/utils/appCapturePolicy.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **15s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.
