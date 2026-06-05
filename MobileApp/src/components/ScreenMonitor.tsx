@@ -13,6 +13,7 @@ import { useScreenshotCapture } from '../hooks/useScreenshotCapture';
 import getScreenCaptureModule from '../native/ScreenCapture';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
 import { getMonitoringIntent, setMonitoringIntent } from '../utils/monitoringIntent';
+import { setMonitoringActive } from '../state/monitoringState';
 import type { CaptureCycleResult } from '../types/screenMonitor';
 
 export interface ScreenMonitorProps {
@@ -60,6 +61,13 @@ export function ScreenMonitor({
     startMonitoring,
     stopMonitoring,
   } = useScreenshotCapture({ intervalMs, onCycleComplete });
+
+  useEffect(() => {
+    setMonitoringActive(isMonitoring);
+    return () => {
+      setMonitoringActive(false);
+    };
+  }, [isMonitoring]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {

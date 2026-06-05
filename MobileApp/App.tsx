@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { AppApiBootstrap } from './src/auth/AppApiBootstrap';
 import { useDevChildToken } from './src/auth/useDevChildToken';
 import { getApiBaseUrl } from './src/config/apiConfig';
 import { preloadImageClassifier } from './src/services/imageClassifier';
-import { UsageTracker } from './src/components/UsageTracker';
+import { RealUsageTracker } from './src/components/RealUsageTracker';
 import { navigationRef, flushPendingMissionNavigation } from './src/navigation/navigationRef';
 import { attachPendingMissionAppStateListener } from './src/navigation/pendingMissionNavigation';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -15,7 +15,6 @@ import { useMissionOverlayListener } from './src/hooks/useMissionOverlayListener
 const API_BASE_URL = getApiBaseUrl();
 
 function App(): React.JSX.Element {
-  const [consentGranted] = useState(true);
   const { ready, error: tokenError, hasToken, retry } = useDevChildToken(API_BASE_URL);
 
   useMissionOverlayListener();
@@ -55,7 +54,7 @@ function App(): React.JSX.Element {
             </Text>
           ) : null}
           <AppNavigator />
-          <UsageTracker enabled={consentGranted && hasToken} />
+          <RealUsageTracker hasToken={hasToken} />
         </SafeAreaView>
       </AppApiBootstrap>
     </NavigationContainer>

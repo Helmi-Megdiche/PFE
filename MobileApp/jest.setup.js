@@ -42,13 +42,15 @@ jest.mock('./src/navigation/AppNavigator', () => {
 
 jest.mock('@react-navigation/native', () => {
   const React = require('react');
+  const NavigationContainer = React.forwardRef(({ children, onReady }, _ref) => {
+    React.useEffect(() => {
+      onReady?.();
+    }, [onReady]);
+    return children;
+  });
+  NavigationContainer.displayName = 'NavigationContainer';
   return {
-    NavigationContainer: ({ children, onReady }) => {
-      React.useEffect(() => {
-        onReady?.();
-      }, [onReady]);
-      return children;
-    },
+    NavigationContainer,
     useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn() }),
     useFocusEffect: jest.fn(),
     createNavigationContainerRef: () => ({
@@ -77,8 +79,8 @@ jest.mock('./src/auth/useDevChildToken', () => ({
   }),
 }));
 
-jest.mock('./src/components/UsageTracker', () => ({
-  UsageTracker: () => null,
+jest.mock('./src/components/RealUsageTracker', () => ({
+  RealUsageTracker: () => null,
 }));
 
 jest.mock('./src/navigation/pendingMissionNavigation', () => ({

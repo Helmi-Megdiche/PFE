@@ -320,7 +320,7 @@ export const DEV_LAN_HOST = '192.168.x.x';  // from ipconfig (Windows) or ifconf
 | 2 | `MobileApp` | `npm start` | Metro bundler |
 | 3 | `MobileApp` | `npm run android` | Install on device |
 
-Grant **MediaProjection** when prompted. Screen monitoring starts automatically via `ScreenMonitor`. Usage tracking runs via `UsageTracker` / `useForegroundTracker` (AppState MVP).
+Grant **MediaProjection** when prompted. Screen monitoring starts via `ScreenMonitor`. Usage tracking now runs via `useRealForegroundTracker` (app-root), polling foreground packages every **5s** while monitoring is active, and batching `POST /api/usage` every **60s**.
 
 Run scoring unit tests:
 
@@ -380,8 +380,8 @@ Batch insert foreground usage sessions.
     {
       "startTime": "2026-05-17T10:00:00.000Z",
       "endTime": "2026-05-17T10:15:00.000Z",
-      "appPackage": "com.mobileapp",
-      "appCategory": "unknown"
+      "appPackage": "com.android.chrome",
+      "appCategory": "browser_social"
     }
   ]
 }
@@ -468,7 +468,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | Sprint | Dates | Status | Summary |
 |--------|-------|--------|---------|
 | **1** | 18 – 31 May 2026 | Complete | **OCR + JWT backend** — MediaProjection capture, on-device ML Kit OCR, keyword filter, `POST /api/screen-events`, JWT auth, `screen_events` storage |
-| **2** | 1 – 14 June 2026 | Complete | **Usage-based scoring + cron** — foreground usage sessions (`POST /api/usage`), addiction & well-being scoring engine, `node-cron` daily aggregation, score & trend APIs |
+| **2** | 1 – 14 June 2026 | Complete | **Usage-based scoring + cron** — real foreground app sessions (`POST /api/usage`, JS poll 5s while monitoring), addiction & well-being scoring engine, `node-cron` daily aggregation, score & trend APIs |
 | **3** | 15 – 28 June 2026 | Complete | **Vision model + combined risk** — ML Kit image labeling + nsfwjs-style proxy on device, `combinedRiskScore = OCR×0.3 + vision×0.7`, extended `screen_events` fields |
 | **3.5** | — | Complete | **Debug & foreground** — `POST /api/debug/classify` (backend nsfwjs + Tesseract OCR), `demo_dashboard.html`, `ForegroundAppModule` (UsageStats), shared `riskMapping.ts` (mobile + backend), `app_label` migration |
 | **3.6** | — | Complete | **Accuracy improvements** — expanded ML Kit mapping (weapons, drugs, gore, adult, hentai proxy), `enforceCategoryConsistency`, explicit OCR boosts & overrides, `nsfwClassifier` proxy (no tfjs on device) |
