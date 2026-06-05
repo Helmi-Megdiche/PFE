@@ -8,6 +8,10 @@ export interface BadgeDto {
   earned: boolean;
   earnedAt?: string;
   category?: string;
+  requirementType?: string | null;
+  requirementValue?: number | null;
+  requirementConfig?: Record<string, unknown> | null;
+  pointsAwarded?: number | null;
 }
 
 export function listBadges(childId: string): Promise<{ badges: BadgeDto[] }> {

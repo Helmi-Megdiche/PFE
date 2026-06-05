@@ -16,3 +16,14 @@ export const updateChildInterestsSchema = Joi.object({
     .unique()
     .required(),
 });
+
+const currentYear = new Date().getFullYear();
+
+export const updateChildProfileSchema = Joi.object({
+  childId: Joi.string().uuid().required(),
+  birthYear: Joi.number()
+    .integer()
+    .min(2000)
+    .max(currentYear)
+    .required(),
+});

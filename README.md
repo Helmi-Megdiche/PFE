@@ -674,6 +674,8 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | POST | `/api/rewards/:rewardId/claim` | Child | Spend points to claim |
 | GET | `/api/badges` | Any | All badges; `?childId=` adds earned status |
 | GET | `/api/badges/child/:childId` | Child / Parent | Earned badges |
+| GET | `/api/child/profile/:childId` | Parent | Read child display name and `birth_year` |
+| PUT | `/api/child/profile` | Parent | Update `birth_year` (re-checks age badges); parent must own child |
 | GET | `/api/child/interests/:childId` | Parent | Read child interests (`sports`, `art`, `reading`, `family`, `brain`) |
 | PUT | `/api/child/interests` | Parent | Update child interests (parent must own child) |
 
@@ -703,7 +705,7 @@ Two tabs:
 | Tab | Contents |
 |-----|----------|
 | **Monitoring** | Vision model debug, Arabic OCR debug, summary cards, 7-day scores chart, recent screen events, API activity log |
-| **Parent Dashboard** | Child profile (static seed map), **child interests editor** (`GET/PUT /api/child/interests`), latest addiction/wellbeing scores, total points & level (`GET /api/scores/:childId`), pending approvals (approve/reject with toasts), mission history (completed + expired, last 20 with dates), earned badges (`GET /api/badges/child/:childId`), active rewards + claimed history, bonus points, escape log, custom missions |
+| **Parent Dashboard** | Child profile from API (`GET/PUT /api/child/profile` — editable birth year), **child interests editor** (`GET/PUT /api/child/interests`), latest addiction/wellbeing scores, total points & level (`GET /api/scores/:childId`), pending approvals (approve/reject with toasts), mission history (completed + expired, last 20 with dates), earned badges (`GET /api/badges/child/:childId`), active rewards + claimed history, bonus points, escape log, custom missions |
 
 All actions use `fetchWithAuth(path, { method, body })` with the parent JWT from `GET /api/dev/parent-token`.
 
@@ -730,6 +732,8 @@ All actions use `fetchWithAuth(path, { method, body })` with the parent JWT from
 
 Age ranges are stored in `badges.requirement_config` JSONB (`{"min":10,"max":12}`). Only one age badge per child is expected (matching their current age band).
 
+**Badge ranks guide (UX):** Parent dashboard **Badge ranks** button (earned-badges card) and child app **Ranks** header action open a progress view: all tiers grouped by category, current points/missions, progress bars toward the next point/mission badge, and locked special badges with requirement text. Legacy duplicate tiers (`First Mission`, `Mission Master`) are hidden in the guide.
+
 **Migration:** `008_add_smart_badges.sql` adds tiered point/mission badges and age badges.
 
 **Smoke test (API running on port 3000):**
@@ -741,6 +745,16 @@ npm run smoke:missions
 ```
 
 Script: [`backend/scripts/smoke-missions.ps1`](backend/scripts/smoke-missions.ps1) — health, dev tokens, generate/list/complete mission, points, badges, parent reward + child claim.
+
+**Sprint 5.8 smoke (wellbeing proxies + interests):**
+
+```powershell
+cd backend
+npm run dev          # separate terminal
+npm run smoke:sprint58
+```
+
+Script: [`backend/scripts/smoke-sprint58.ts`](backend/scripts/smoke-sprint58.ts) — interests API, age-based screen caps, mission tie-breaker (multiple ages/interests), wellbeing proxy seeding, daily score job, scores/level API, parent approval → physical proxy increment.
 
 ---
 

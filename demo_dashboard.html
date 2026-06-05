@@ -239,15 +239,31 @@
       </p>
       <p class="text-xs text-slate-400 mt-1 font-mono" id="childIdDisplay">—</p>
       <div class="mt-4 pt-4 border-t border-slate-100">
+        <h3 class="text-sm font-semibold mb-2">Age &amp; birth year</h3>
+        <p class="text-xs text-slate-500 mb-3">Set the year your child was born — used for missions, screen-time caps, and age badges.</p>
+        <div class="flex flex-wrap gap-3 items-end">
+        <label class="block">
+          <span class="text-xs text-slate-500">Birth year</span>
+          <input id="childBirthYear" type="number" min="2000" step="1"
+            class="mt-1 w-28 rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <button type="button" id="saveProfileBtn"
+          class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+          Save age
+        </button>
+        <span id="profileStatus" class="text-xs text-slate-500"></span>
+        </div>
+      </div>
+      <div class="mt-4 pt-4 border-t border-slate-100">
         <h3 class="text-sm font-semibold mb-2">Child interests</h3>
-        <p class="text-xs text-slate-500 mb-2">Comma-separated: sports, art, reading, family, brain</p>
+        <p class="text-xs text-slate-500 mb-3">Choose from the list below — only predefined interests are saved.</p>
+        <div id="interestsPicker" class="flex flex-wrap gap-2 mb-3" role="group" aria-label="Child interests"></div>
         <div class="flex flex-wrap gap-2 items-center">
-          <input type="text" id="interestsInput" placeholder="e.g. sports, reading"
-            class="flex-1 min-w-[12rem] border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           <button type="button" id="saveInterestsBtn"
             class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
             Save interests
           </button>
+          <span id="interestsSavedList" class="text-xs text-slate-500"></span>
         </div>
         <p id="interestsStatus" class="text-sm mt-2 text-slate-500"></p>
       </div>
@@ -305,7 +321,13 @@
     </section>
 
     <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
-      <h2 class="text-lg font-semibold mb-3">Earned badges</h2>
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 class="text-lg font-semibold">Earned badges</h2>
+        <button id="btnBadgeGuide" type="button"
+          class="shrink-0 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100">
+          Badge ranks
+        </button>
+      </div>
       <div id="badgesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-h-[3rem]">
         <p class="text-slate-400 col-span-full">Loading…</p>
       </div>
@@ -432,12 +454,29 @@
 
   <div id="toastContainer" aria-live="polite"></div>
 
+  <div id="badgeGuideModal" class="fixed inset-0 z-[60] hidden" role="dialog" aria-modal="true" aria-labelledby="badgeGuideTitle">
+    <div id="badgeGuideBackdrop" class="absolute inset-0 bg-slate-900/50"></div>
+    <div class="relative z-10 flex items-start justify-center min-h-full p-4 pt-10 md:pt-16">
+      <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+          <h3 id="badgeGuideTitle" class="text-lg font-semibold text-slate-900">Badge ranks & progress</h3>
+          <button id="badgeGuideClose" type="button"
+            class="text-slate-500 hover:text-slate-800 text-xl leading-none px-2" aria-label="Close">
+            &times;
+          </button>
+        </div>
+        <div id="badgeGuideContent" class="overflow-y-auto p-4 text-sm">
+          <p class="text-slate-400">Loading…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       const DEFAULT_CHILD = '33333333-3333-3333-3333-333333333333';
-      const DEMO_CHILD_PROFILE = {
-        [DEFAULT_CHILD]: { displayName: 'Test Child', birthYear: 2014 },
-      };
+      const PROFILE_BIRTH_YEAR_MIN = 2000;
+      const PROFILE_BIRTH_YEAR_MAX = new Date().getFullYear();
       const REFRESH_MS = 10_000;
       const NOTIFY_MS = 30_000;
       const LOG_WINDOW_MS = 5 * 60 * 1000;
@@ -451,6 +490,7 @@
       let scoresChart = null;
       let activeTab = 'monitoring';
       const activityEntries = [];
+      let childProfile = { displayName: null, birthYear: null };
 
       const $ = (id) => document.getElementById(id);
 
@@ -472,21 +512,94 @@
         });
       }
 
+      function formatChildAge(birthYear) {
+        if (birthYear == null) return null;
+        return new Date().getFullYear() - birthYear;
+      }
+
       function renderChildProfile() {
         const id = childId();
-        const profile = DEMO_CHILD_PROFILE[id];
         $('childIdDisplay').textContent = id;
-        if (!profile) {
-          $('childDisplayName').textContent = 'Unknown child';
+        $('childBirthYear').min = String(PROFILE_BIRTH_YEAR_MIN);
+        $('childBirthYear').max = String(PROFILE_BIRTH_YEAR_MAX);
+        if (!childProfile.displayName) {
+          $('childDisplayName').textContent = 'Loading…';
           $('childAgeWrap').textContent = '';
+          $('childBirthYear').value = '';
           return;
         }
-        $('childDisplayName').textContent = profile.displayName;
-        if (profile.birthYear) {
-          const age = new Date().getFullYear() - profile.birthYear;
-          $('childAgeWrap').textContent = ' · Age ' + age;
-        } else {
-          $('childAgeWrap').textContent = '';
+        $('childDisplayName').textContent = childProfile.displayName;
+        const age = formatChildAge(childProfile.birthYear);
+        $('childAgeWrap').textContent = age != null ? ' · Age ' + age : '';
+        $('childBirthYear').value =
+          childProfile.birthYear != null ? String(childProfile.birthYear) : '';
+      }
+
+      async function fetchChildProfile() {
+        const id = childId();
+        const res = await fetchWithAuth(`/child/profile/${id}`);
+        if (!res.ok) throw new Error('Child profile: HTTP ' + res.status);
+        return res.json();
+      }
+
+      async function loadChildProfile() {
+        const id = childId();
+        if (!id) return;
+        try {
+          const data = await fetchChildProfile();
+          childProfile = {
+            displayName: data.displayName ?? null,
+            birthYear: data.birthYear ?? null,
+          };
+          renderChildProfile();
+        } catch (err) {
+          childProfile = { displayName: null, birthYear: null };
+          renderChildProfile();
+          $('childDisplayName').textContent = 'Profile unavailable';
+          console.warn('Failed to load child profile', err);
+        }
+      }
+
+      async function saveChildProfile() {
+        const id = childId();
+        const birthYear = parseInt($('childBirthYear').value, 10);
+        if (
+          !Number.isFinite(birthYear) ||
+          birthYear < PROFILE_BIRTH_YEAR_MIN ||
+          birthYear > PROFILE_BIRTH_YEAR_MAX
+        ) {
+          $('profileStatus').textContent = 'Enter a valid birth year';
+          showToast('error', 'Enter a valid birth year (' + PROFILE_BIRTH_YEAR_MIN + '–' + PROFILE_BIRTH_YEAR_MAX + ')');
+          return;
+        }
+        try {
+          const res = await fetchWithAuth('/child/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ childId: id, birthYear }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'HTTP ' + res.status);
+          }
+          const data = await res.json();
+          childProfile = {
+            displayName: data.displayName ?? childProfile.displayName,
+            birthYear: data.birthYear ?? birthYear,
+          };
+          renderChildProfile();
+          const age = formatChildAge(childProfile.birthYear);
+          $('profileStatus').textContent =
+            age != null ? 'Saved — age ' + age : 'Saved';
+          showToast('ok', 'Child age updated');
+          if (data.newBadges?.length) {
+            showToast('ok', 'New badge' + (data.newBadges.length > 1 ? 's' : '') + ': ' + data.newBadges.join(', '));
+          }
+          setTimeout(() => { $('profileStatus').textContent = ''; }, 4000);
+          await refreshGamification();
+        } catch (err) {
+          $('profileStatus').textContent = 'Save failed';
+          showToast('error', err.message || 'Save failed');
         }
       }
 
@@ -823,7 +936,45 @@
         return data.badges || [];
       }
 
-      const ALLOWED_INTERESTS = ['sports', 'art', 'reading', 'family', 'brain'];
+      const INTEREST_OPTIONS = [
+        { id: 'sports', label: 'Sports & movement', hint: 'Physical activity missions' },
+        { id: 'art', label: 'Art & kindness', hint: 'Creative and social missions' },
+        { id: 'reading', label: 'Reading & learning', hint: 'Quiz and educational missions' },
+        { id: 'family', label: 'Family time', hint: 'Family interaction missions' },
+        { id: 'brain', label: 'Brain games', hint: 'Puzzles and cognitive missions' },
+      ];
+
+      function renderInterestsPicker(selected) {
+        const selectedSet = new Set((selected || []).map((s) => String(s).toLowerCase()));
+        const picker = $('interestsPicker');
+        picker.innerHTML = INTEREST_OPTIONS.map(
+          (opt) => `
+          <label class="inline-flex items-start gap-2 border rounded-lg px-3 py-2 cursor-pointer transition-colors
+            ${selectedSet.has(opt.id) ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white hover:border-slate-300'}">
+            <input type="checkbox" class="interest-cb mt-0.5" value="${opt.id}"
+              ${selectedSet.has(opt.id) ? 'checked' : ''} />
+            <span>
+              <span class="block text-sm font-medium">${escapeHtml(opt.label)}</span>
+              <span class="block text-xs text-slate-500">${escapeHtml(opt.hint)}</span>
+            </span>
+          </label>`,
+        ).join('');
+      }
+
+      function getSelectedInterests() {
+        return Array.from(document.querySelectorAll('#interestsPicker .interest-cb:checked'))
+          .map((el) => el.value)
+          .filter((id) => INTEREST_OPTIONS.some((o) => o.id === id));
+      }
+
+      function formatInterestsList(interests) {
+        if (!interests.length) return 'None selected';
+        return interests
+          .map((id) => INTEREST_OPTIONS.find((o) => o.id === id)?.label || id)
+          .join(', ');
+      }
+
+      renderInterestsPicker([]);
 
       async function loadInterests() {
         const id = childId();
@@ -832,7 +983,11 @@
           const res = await fetchWithAuth(`/child/interests/${id}`);
           if (!res.ok) return;
           const data = await res.json();
-          $('interestsInput').value = (data.interests || []).join(', ');
+          const valid = (data.interests || []).filter((s) =>
+            INTEREST_OPTIONS.some((o) => o.id === s),
+          );
+          renderInterestsPicker(valid);
+          $('interestsSavedList').textContent = 'Saved: ' + formatInterestsList(valid);
         } catch (err) {
           console.warn('Failed to load interests', err);
         }
@@ -840,11 +995,7 @@
 
       async function saveInterests() {
         const id = childId();
-        const raw = $('interestsInput').value;
-        const interests = raw
-          .split(',')
-          .map((s) => s.trim().toLowerCase())
-          .filter((s) => ALLOWED_INTERESTS.includes(s));
+        const interests = getSelectedInterests();
         try {
           const res = await fetchWithAuth('/child/interests', {
             method: 'PUT',
@@ -855,9 +1006,13 @@
             const err = await res.json().catch(() => ({}));
             throw new Error(err.error || 'HTTP ' + res.status);
           }
-          $('interestsStatus').textContent = 'Interests saved!';
-          showToast('ok', 'Interests saved');
-          setTimeout(() => { $('interestsStatus').textContent = ''; }, 3000);
+          const savedText = formatInterestsList(interests);
+          $('interestsStatus').textContent = interests.length
+            ? 'Interests saved: ' + savedText
+            : 'All interests cleared';
+          $('interestsSavedList').textContent = 'Saved: ' + savedText;
+          showToast('ok', interests.length ? 'Interests saved' : 'Interests cleared');
+          setTimeout(() => { $('interestsStatus').textContent = ''; }, 4000);
         } catch (err) {
           $('interestsStatus').textContent = 'Save failed';
           showToast('error', err.message || 'Save failed');
@@ -908,6 +1063,194 @@
           </div>`,
           )
           .join('');
+      }
+
+      const BADGE_GUIDE_LEGACY = new Set(['First Mission', 'Mission Master']);
+      const BADGE_CATEGORY_LABELS = {
+        point: 'Points ranks',
+        mission: 'Mission ranks',
+        age: 'Age badges',
+        special: 'Special achievements',
+      };
+      const BADGE_CATEGORY_ORDER = ['point', 'mission', 'age', 'special'];
+
+      function getChildAge() {
+        return formatChildAge(childProfile.birthYear);
+      }
+
+      async function fetchAllBadges() {
+        const id = childId();
+        const res = await fetchWithAuth(`/badges?childId=${encodeURIComponent(id)}`);
+        if (!res.ok) throw new Error('All badges: HTTP ' + res.status);
+        const data = await res.json();
+        return data.badges || [];
+      }
+
+      function badgeGuideSort(a, b) {
+        const av = a.requirementValue ?? Number.MAX_SAFE_INTEGER;
+        const bv = b.requirementValue ?? Number.MAX_SAFE_INTEGER;
+        if (av !== bv) return av - bv;
+        return String(a.name).localeCompare(String(b.name));
+      }
+
+      function computeBadgeGuideProgress(badge, stats) {
+        if (badge.earned) {
+          return { label: 'Earned', pct: 100, isNext: false };
+        }
+        switch (badge.requirementType) {
+          case 'total_points': {
+            const target = badge.requirementValue ?? 0;
+            const current = stats.totalPoints;
+            const remaining = Math.max(0, target - current);
+            return {
+              label: remaining === 0
+                ? current + ' / ' + target + ' points — ready!'
+                : current + ' / ' + target + ' points (' + remaining + ' more)',
+              pct: target > 0 ? Math.min(100, (current / target) * 100) : 0,
+              isNext: false,
+            };
+          }
+          case 'missions_completed': {
+            const target = badge.requirementValue ?? 0;
+            const current = stats.completedMissions;
+            const remaining = Math.max(0, target - current);
+            return {
+              label: remaining === 0
+                ? current + ' / ' + target + ' missions — ready!'
+                : current + ' / ' + target + ' missions (' + remaining + ' more)',
+              pct: target > 0 ? Math.min(100, (current / target) * 100) : 0,
+              isNext: false,
+            };
+          }
+          case 'age_range': {
+            const cfg = badge.requirementConfig || {};
+            const age = stats.age;
+            const matches = age != null && age >= (cfg.min ?? 0) && age <= (cfg.max ?? 999);
+            return {
+              label: matches
+                ? 'Matches child age — unlocks automatically'
+                : (badge.description || 'Based on profile age'),
+              pct: matches ? 100 : 0,
+              isNext: false,
+            };
+          }
+          default:
+            return {
+              label: badge.description || 'Complete the requirement to unlock',
+              pct: 0,
+              isNext: false,
+            };
+        }
+      }
+
+      function markNextGuideBadges(badges, stats) {
+        const map = new Map();
+        for (const badge of badges) {
+          map.set(badge.id, computeBadgeGuideProgress(badge, stats));
+        }
+        for (const category of ['point', 'mission']) {
+          const next = badges
+            .filter((b) => b.category === category && !b.earned)
+            .sort(badgeGuideSort)[0];
+          if (next) {
+            const p = map.get(next.id);
+            if (p) map.set(next.id, { ...p, isNext: true });
+          }
+        }
+        return map;
+      }
+
+      function renderBadgeGuideContent(badges, stats) {
+        const filtered = badges.filter((b) => !BADGE_GUIDE_LEGACY.has(b.name));
+        const progressMap = markNextGuideBadges(filtered, stats);
+        const groups = {};
+        for (const cat of BADGE_CATEGORY_ORDER) groups[cat] = [];
+        for (const badge of filtered) {
+          const cat = badge.category || 'special';
+          (groups[cat] || groups.special).push(badge);
+        }
+        for (const cat of BADGE_CATEGORY_ORDER) {
+          groups[cat].sort(badgeGuideSort);
+        }
+
+        const summary = `
+          <div class="rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm text-slate-700 space-y-1 mb-4">
+            <div><span class="font-semibold text-slate-500">Points:</span> ${stats.totalPoints}</div>
+            <div><span class="font-semibold text-slate-500">Missions completed:</span> ${stats.completedMissions}</div>
+            ${stats.age != null ? '<div><span class="font-semibold text-slate-500">Age:</span> ' + stats.age + '</div>' : ''}
+          </div>`;
+
+        const sections = BADGE_CATEGORY_ORDER.map((category) => {
+          const list = groups[category] || [];
+          if (!list.length) return '';
+          const rows = list.map((badge) => {
+            const progress = progressMap.get(badge.id);
+            const rowClass = badge.earned
+              ? 'border-green-200 bg-green-50'
+              : progress.isNext
+                ? 'border-blue-200 bg-blue-50'
+                : 'border-slate-200 bg-white';
+            const bar = !badge.earned && progress.pct > 0
+              ? `<div class="h-1.5 bg-slate-200 rounded-full mt-2 overflow-hidden">
+                   <div class="h-full bg-indigo-500 rounded-full" style="width:${progress.pct}%"></div>
+                 </div>`
+              : '';
+            return `
+              <div class="border rounded-lg p-3 mb-2 ${rowClass}">
+                <div class="flex items-start gap-3">
+                  <span class="text-2xl">${escapeHtml(badge.icon || '🏅')}</span>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm">
+                      ${escapeHtml(badge.name)}${progress.isNext ? ' <span class="text-indigo-600">· Next up</span>' : ''}
+                    </div>
+                    <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(badge.description || '')}</div>
+                    ${badge.pointsAwarded != null ? '<div class="text-xs text-indigo-600 mt-1">+' + badge.pointsAwarded + ' bonus points</div>' : ''}
+                  </div>
+                  <span class="text-xs font-semibold shrink-0 ${badge.earned ? 'text-green-600' : 'text-slate-400'}">
+                    ${badge.earned ? 'Earned' : 'Locked'}
+                  </span>
+                </div>
+                ${bar}
+                <div class="text-xs text-slate-600 mt-2">${escapeHtml(progress.label)}</div>
+              </div>`;
+          }).join('');
+          return `
+            <div class="mb-5">
+              <h4 class="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">${BADGE_CATEGORY_LABELS[category]}</h4>
+              ${rows}
+            </div>`;
+        }).join('');
+
+        $('badgeGuideContent').innerHTML = summary + sections;
+      }
+
+      function closeBadgeGuide() {
+        $('badgeGuideModal').classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+      }
+
+      async function openBadgeGuide() {
+        const modal = $('badgeGuideModal');
+        const content = $('badgeGuideContent');
+        modal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+        content.innerHTML = '<p class="text-slate-400 text-sm">Loading badge ranks…</p>';
+        try {
+          const [allBadges, points, missions] = await Promise.all([
+            fetchAllBadges(),
+            fetchChildPoints(),
+            fetchMissions(),
+          ]);
+          const stats = {
+            totalPoints: points.totalPoints ?? 0,
+            completedMissions: (missions.completed || []).length,
+            age: getChildAge(),
+          };
+          renderBadgeGuideContent(allBadges, stats);
+        } catch (err) {
+          content.innerHTML =
+            '<p class="text-red-600 text-sm">' + escapeHtml(err.message || String(err)) + '</p>';
+        }
       }
 
       function renderPendingApprovals(missions) {
@@ -1258,7 +1601,7 @@
 
       async function refreshGamification() {
         try {
-          renderChildProfile();
+          await loadChildProfile();
           const [missions, points, rewards, customMissions, latestScore, badges] = await Promise.all([
             fetchMissions(),
             fetchChildPoints(),
@@ -1506,14 +1849,25 @@
       });
 
       $('childId').addEventListener('change', () => {
+        childProfile = { displayName: null, birthYear: null };
         renderChildProfile();
         void loadInterests();
         refreshAll();
       });
 
+      $('saveProfileBtn').addEventListener('click', () => {
+        void saveChildProfile();
+      });
+
       $('saveInterestsBtn').addEventListener('click', () => {
         void saveInterests();
       });
+
+      $('btnBadgeGuide').addEventListener('click', () => {
+        void openBadgeGuide();
+      });
+      $('badgeGuideClose').addEventListener('click', closeBadgeGuide);
+      $('badgeGuideBackdrop').addEventListener('click', closeBadgeGuide);
 
       document.querySelectorAll('#tabBar .tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => {

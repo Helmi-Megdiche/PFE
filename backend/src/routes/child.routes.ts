@@ -4,7 +4,11 @@ import {
   AuthenticatedRequest,
 } from '../middleware/auth';
 import { validateBody } from '../middleware/validate';
-import { updateChildInterestsSchema } from '../validators/child.validator';
+import {
+  updateChildInterestsSchema,
+  updateChildProfileSchema,
+} from '../validators/child.validator';
+import { checkAndAwardBadges } from '../services/gamificationService';
 import { query } from '../db/pool';
 import { logger } from '../utils/logger';
 
@@ -29,6 +33,101 @@ function normalizeInterests(raw: unknown): string[] {
   }
   return raw.filter((item): item is string => typeof item === 'string');
 }
+
+/**
+ * GET /api/child/profile/:childId
+ */
+router.get(
+  '/profile/:childId',
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { childId } = req.params;
+    const parentId = req.user!.sub;
+
+    try {
+      if (!(await assertParentOwnsChild(parentId, childId))) {
+        res.status(403).json({ error: 'Access denied for this child' });
+        return;
+      }
+
+      const { rows } = await query<{
+        display_name: string;
+        birth_year: number | null;
+      }>(
+        `SELECT display_name, birth_year FROM children WHERE id = $1`,
+        [childId],
+      );
+      if (!rows[0]) {
+        res.status(404).json({ error: 'Child not found' });
+        return;
+      }
+
+      res.json({
+        childId,
+        displayName: rows[0].display_name,
+        birthYear: rows[0].birth_year,
+      });
+    } catch (err) {
+      logger.error('Failed to fetch child profile', {
+        childId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to fetch child profile' });
+    }
+  },
+);
+
+/**
+ * PUT /api/child/profile
+ */
+router.put(
+  '/profile',
+  validateBody(updateChildProfileSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { childId, birthYear } = req.body as {
+      childId: string;
+      birthYear: number;
+    };
+    const parentId = req.user!.sub;
+
+    try {
+      if (!(await assertParentOwnsChild(parentId, childId))) {
+        res.status(403).json({ error: 'Access denied for this child' });
+        return;
+      }
+
+      const { rows } = await query<{
+        display_name: string;
+        birth_year: number | null;
+      }>(
+        `UPDATE children
+         SET birth_year = $1
+         WHERE id = $2 AND parent_id = $3
+         RETURNING display_name, birth_year`,
+        [birthYear, childId, parentId],
+      );
+      if (!rows[0]) {
+        res.status(404).json({ error: 'Child not found' });
+        return;
+      }
+
+      const newBadges = await checkAndAwardBadges(childId);
+
+      res.json({
+        success: true,
+        childId,
+        displayName: rows[0].display_name,
+        birthYear: rows[0].birth_year,
+        newBadges,
+      });
+    } catch (err) {
+      logger.error('Failed to update child profile', {
+        childId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      res.status(500).json({ error: 'Failed to update child profile' });
+    }
+  },
+);
 
 /**
  * GET /api/child/interests/:childId
