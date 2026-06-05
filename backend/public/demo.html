@@ -19,6 +19,13 @@
     .badge-dangerous, .badge-dangerous_challenge { background: #fef3c7; color: #92400e; }
     .badge-educational { background: #dbeafe; color: #1e40af; }
     .badge-neutral { background: #f1f5f9; color: #475569; }
+    .tab-btn { padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; background: #e2e8f0; color: #475569; }
+    .tab-btn:hover { background: #cbd5e1; }
+    .tab-btn.tab-active { background: #4f46e5; color: #fff; }
+    #toastContainer { position: fixed; bottom: 1rem; right: 1rem; z-index: 50; display: flex; flex-direction: column; gap: 0.5rem; max-width: 20rem; }
+    .toast { padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    .toast-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .toast-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -27,7 +34,7 @@
     <header class="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-3xl font-bold text-slate-900">Parental Control AI</h1>
-        <p class="text-slate-600 mt-1">Live demo dashboard — ESPRIT PFE (Sprint 1–3.5)</p>
+        <p class="text-slate-600 mt-1">Live demo dashboard — ESPRIT PFE (Sprint 1–5.7)</p>
       </div>
       <div class="flex flex-wrap gap-2 items-center">
         <button id="btnRefresh" type="button" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium">
@@ -64,6 +71,13 @@
       </div>
       <p class="text-xs text-slate-400 mt-2">Uses <code class="bg-slate-100 px-1 rounded">GET /api/dev/parent-token</code> then parent JWT for screen events &amp; scores.</p>
     </section>
+
+    <div id="tabBar" class="flex gap-2 mb-6">
+      <button type="button" data-tab="monitoring" class="tab-btn tab-active">Monitoring</button>
+      <button type="button" data-tab="parent" class="tab-btn">Parent Dashboard</button>
+    </div>
+
+    <div id="tabMonitoring">
 
     <!-- Vision Model Debug Tool -->
     <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
@@ -183,8 +197,7 @@
       </div>
     </section>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Events table -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
       <section class="lg:col-span-2 bg-white rounded-xl shadow-sm border p-4">
         <h2 class="text-lg font-semibold mb-3">Recent screen events</h2>
         <div class="overflow-x-auto">
@@ -206,90 +219,6 @@
           </table>
         </div>
       </section>
-
-      <!-- Sprint 5: Gamification (parent) -->
-      <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
-        <h2 class="text-lg font-semibold mb-1">Gamification — parent tools</h2>
-        <p class="text-xs text-slate-500 mb-4">
-          Pending approvals, bonus points, escape log. For browser notifications, open via
-          <code class="bg-slate-100 px-1 rounded">http://localhost:3000/demo.html</code> (not <code>file://</code>).
-        </p>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <h3 class="text-sm font-semibold text-slate-600 mb-2">Pending approvals</h3>
-            <div id="pendingApprovalsList" class="space-y-2 text-sm min-h-[4rem]">
-              <p class="text-slate-400">Loading…</p>
-            </div>
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold text-slate-600 mb-2">Bonus points</h3>
-            <p class="text-sm mb-2">Current points: <strong id="bonusCurrentPoints">—</strong></p>
-            <div class="flex flex-wrap gap-2 items-end">
-              <label class="block">
-                <span class="text-xs text-slate-500">Points</span>
-                <input id="bonusPoints" type="number" min="1" value="10"
-                  class="mt-1 w-24 rounded border border-slate-300 px-2 py-1 text-sm" />
-              </label>
-              <label class="block flex-1 min-w-[140px]">
-                <span class="text-xs text-slate-500">Reason</span>
-                <input id="bonusReason" type="text" placeholder="Great behaviour"
-                  class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
-              </label>
-              <button id="btnBonus" type="button"
-                class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">
-                Award bonus
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="mt-6">
-          <h3 class="text-sm font-semibold text-slate-600 mb-2">Escape log</h3>
-          <div class="overflow-x-auto rounded-lg border border-slate-200">
-            <table class="min-w-full text-sm">
-              <thead class="bg-slate-50 text-slate-600">
-                <tr>
-                  <th class="px-3 py-2 text-left">Time</th>
-                  <th class="px-3 py-2 text-left">Mission</th>
-                  <th class="px-3 py-2 text-left">Penalty</th>
-                </tr>
-              </thead>
-              <tbody id="escapeLogBody">
-                <tr><td colspan="3" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <!-- Sprint 5.5: Custom missions (see demo_dashboard.html for full rewards/history UI) -->
-      <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
-        <h2 class="text-lg font-semibold mb-1">Custom real-world missions</h2>
-        <p class="text-xs text-slate-500 mb-4">Parent-defined missions mixed into the child real-world pool.</p>
-        <form id="customMissionForm" class="flex flex-wrap gap-2 items-end mb-4">
-          <input id="customTitle" type="text" required placeholder="Title"
-            class="rounded border border-slate-300 px-2 py-1 text-sm w-40" />
-          <input id="customDesc" type="text" required placeholder="Description"
-            class="rounded border border-slate-300 px-2 py-1 text-sm flex-1 min-w-[160px]" />
-          <input id="customPoints" type="number" min="5" max="500" value="20" required
-            class="rounded border border-slate-300 px-2 py-1 text-sm w-24" />
-          <button type="submit" class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium">Add</button>
-        </form>
-        <table class="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
-          <thead class="bg-slate-50 text-slate-600">
-            <tr>
-              <th class="px-3 py-2 text-left">Title</th>
-              <th class="px-3 py-2 text-left">Description</th>
-              <th class="px-3 py-2 text-left">Pts</th>
-              <th class="px-3 py-2 text-left"></th>
-            </tr>
-          </thead>
-          <tbody id="customMissionsBody">
-            <tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- Activity log -->
       <section class="bg-white rounded-xl shadow-sm border p-4">
         <h2 class="text-lg font-semibold mb-3">API activity (5 min)</h2>
         <ul id="activityLog" class="space-y-1 max-h-96 overflow-y-auto text-slate-600">
@@ -297,11 +226,205 @@
         </ul>
       </section>
     </div>
+
+    </div><!-- /tabMonitoring -->
+
+    <div id="tabParent" class="hidden">
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-1">Child profile</h2>
+      <p class="text-sm text-slate-600 mt-2">
+        <span class="font-medium" id="childDisplayName">—</span>
+        <span id="childAgeWrap" class="text-slate-500"> · Age —</span>
+      </p>
+      <p class="text-xs text-slate-400 mt-1 font-mono" id="childIdDisplay">—</p>
+      <p class="text-xs text-slate-400 mt-2">
+        For browser notifications, open via
+        <code class="bg-slate-100 px-1 rounded">http://localhost:3000/demo.html</code> (not <code>file://</code>).
+      </p>
+    </section>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Addiction score</p>
+        <p id="cardAddiction" class="text-3xl font-bold mt-1">—</p>
+        <p id="cardAddictionDate" class="text-xs text-slate-400 mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Wellbeing score</p>
+        <p id="cardWellbeing" class="text-3xl font-bold mt-1">—</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Total points</p>
+        <p id="cardTotalPoints" class="text-3xl font-bold mt-1 text-indigo-600">—</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border p-4">
+        <p class="text-sm text-slate-500">Level</p>
+        <p id="cardLevel" class="text-3xl font-bold mt-1">—</p>
+      </div>
+    </div>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-1">Pending approvals</h2>
+      <div id="pendingApprovalsList" class="space-y-2 text-sm min-h-[4rem]">
+        <p class="text-slate-400">Loading…</p>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-3">Mission history</h2>
+      <p class="text-xs text-slate-500 mb-2">Completed and expired missions (last 20).</p>
+      <div class="overflow-x-auto rounded-lg border border-slate-200 max-h-80 overflow-y-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-600 sticky top-0">
+            <tr>
+              <th class="px-3 py-2 text-left">Date</th>
+              <th class="px-3 py-2 text-left">Mission</th>
+              <th class="px-3 py-2 text-left">Status</th>
+              <th class="px-3 py-2 text-left">Points</th>
+            </tr>
+          </thead>
+          <tbody id="missionHistoryBody">
+            <tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-3">Earned badges</h2>
+      <div id="badgesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-h-[3rem]">
+        <p class="text-slate-400 col-span-full">Loading…</p>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-4">Rewards management</h2>
+      <div class="flex flex-wrap gap-2 items-end mb-3">
+        <label class="block">
+          <span class="text-xs text-slate-500">Title</span>
+          <input id="rewardTitle" type="text" placeholder="Extra screen time"
+            class="mt-1 w-40 rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="block flex-1 min-w-[120px]">
+          <span class="text-xs text-slate-500">Description</span>
+          <input id="rewardDesc" type="text" placeholder="30 minutes"
+            class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Points</span>
+          <input id="rewardPoints" type="number" min="1" value="50"
+            class="mt-1 w-24 rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <button id="btnCreateReward" type="button"
+          class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+          Add reward
+        </button>
+      </div>
+      <h3 class="text-sm font-semibold text-slate-600 mb-2">Active rewards</h3>
+      <div id="rewardsList" class="space-y-2 text-sm min-h-[3rem] mb-4">
+        <p class="text-slate-400">Loading…</p>
+      </div>
+      <h3 class="text-sm font-semibold text-slate-600 mb-2">Claimed rewards</h3>
+      <div id="claimedRewardsList" class="space-y-2 text-sm min-h-[2rem]">
+        <p class="text-slate-400">Loading…</p>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-1">Bonus points</h2>
+      <p class="text-sm mb-2">Current points: <strong id="bonusCurrentPoints">—</strong></p>
+      <div class="flex flex-wrap gap-2 items-end">
+        <label class="block">
+          <span class="text-xs text-slate-500">Points</span>
+          <input id="bonusPoints" type="number" min="1" value="10"
+            class="mt-1 w-24 rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="block flex-1 min-w-[140px]">
+          <span class="text-xs text-slate-500">Reason</span>
+          <input id="bonusReason" type="text" placeholder="Great behaviour"
+            class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <button id="btnBonus" type="button"
+          class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700">
+          Award bonus
+        </button>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-3">Escape log</h2>
+      <div class="overflow-x-auto rounded-lg border border-slate-200">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-600">
+            <tr>
+              <th class="px-3 py-2 text-left">Time</th>
+              <th class="px-3 py-2 text-left">Mission</th>
+              <th class="px-3 py-2 text-left">Penalty</th>
+            </tr>
+          </thead>
+          <tbody id="escapeLogBody">
+            <tr><td colspan="3" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
+      <h2 class="text-lg font-semibold mb-1">Custom real-world missions</h2>
+      <p class="text-xs text-slate-500 mb-4">
+        Missions you create here are mixed into the child&apos;s real-world mission pool (alongside built-in templates).
+      </p>
+      <form id="customMissionForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end mb-4">
+        <label class="block sm:col-span-1">
+          <span class="text-xs text-slate-500">Title</span>
+          <input id="customTitle" type="text" required placeholder="Tidy your room"
+            class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="block sm:col-span-1 lg:col-span-2">
+          <span class="text-xs text-slate-500">Description</span>
+          <input id="customDesc" type="text" required placeholder="Put toys away and make the bed"
+            class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">Points</span>
+          <input id="customPoints" type="number" min="5" max="500" value="20" required
+            class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <button type="submit"
+          class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 sm:col-span-2 lg:col-span-1">
+          Add mission
+        </button>
+      </form>
+      <div class="overflow-x-auto rounded-lg border border-slate-200">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-600">
+            <tr>
+              <th class="px-3 py-2 text-left">Title</th>
+              <th class="px-3 py-2 text-left">Description</th>
+              <th class="px-3 py-2 text-left">Points</th>
+              <th class="px-3 py-2 text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="customMissionsBody">
+            <tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    </div><!-- /tabParent -->
+
   </div>
+
+  <div id="toastContainer" aria-live="polite"></div>
 
   <script>
     (function () {
       const DEFAULT_CHILD = '33333333-3333-3333-3333-333333333333';
+      const DEMO_CHILD_PROFILE = {
+        [DEFAULT_CHILD]: { displayName: 'Test Child', birthYear: 2014 },
+      };
       const REFRESH_MS = 10_000;
       const NOTIFY_MS = 30_000;
       const LOG_WINDOW_MS = 5 * 60 * 1000;
@@ -313,9 +436,46 @@
       let autoRefresh = true;
       let refreshTimer = null;
       let scoresChart = null;
+      let activeTab = 'monitoring';
       const activityEntries = [];
 
       const $ = (id) => document.getElementById(id);
+
+      function showToast(type, message) {
+        const container = $('toastContainer');
+        const el = document.createElement('div');
+        el.className = 'toast ' + (type === 'error' ? 'toast-error' : 'toast-ok');
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+      }
+
+      function switchTab(name) {
+        activeTab = name;
+        $('tabMonitoring').classList.toggle('hidden', name !== 'monitoring');
+        $('tabParent').classList.toggle('hidden', name !== 'parent');
+        document.querySelectorAll('#tabBar .tab-btn').forEach((btn) => {
+          btn.classList.toggle('tab-active', btn.getAttribute('data-tab') === name);
+        });
+      }
+
+      function renderChildProfile() {
+        const id = childId();
+        const profile = DEMO_CHILD_PROFILE[id];
+        $('childIdDisplay').textContent = id;
+        if (!profile) {
+          $('childDisplayName').textContent = 'Unknown child';
+          $('childAgeWrap').textContent = '';
+          return;
+        }
+        $('childDisplayName').textContent = profile.displayName;
+        if (profile.birthYear) {
+          const age = new Date().getFullYear() - profile.birthYear;
+          $('childAgeWrap').textContent = ' · Age ' + age;
+        } else {
+          $('childAgeWrap').textContent = '';
+        }
+      }
 
       function apiBase() {
         return $('apiBase').value.replace(/\/$/, '');
@@ -634,6 +794,68 @@
         return res.json();
       }
 
+      async function fetchLatestScore() {
+        const id = childId();
+        const res = await fetchWithAuth(`/scores/${id}`);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error('Latest score: HTTP ' + res.status);
+        return res.json();
+      }
+
+      async function fetchChildBadges() {
+        const id = childId();
+        const res = await fetchWithAuth(`/badges/child/${id}`);
+        if (!res.ok) throw new Error('Badges: HTTP ' + res.status);
+        const data = await res.json();
+        return data.badges || [];
+      }
+
+      function renderLatestScores(scoreRow, pointsRow) {
+        const addictionEl = $('cardAddiction');
+        const wellbeingEl = $('cardWellbeing');
+        if (scoreRow) {
+          const addiction = scoreRow.addictionScore;
+          const wellbeing = scoreRow.wellbeingScore;
+          addictionEl.textContent = addiction != null ? addiction + '/100' : '—';
+          addictionEl.className =
+            'text-3xl font-bold mt-1 ' + (addiction > 70 ? 'risk-high' : addiction != null && addiction < 40 ? 'risk-low' : '');
+          wellbeingEl.textContent = wellbeing != null ? wellbeing + '/100' : '—';
+          wellbeingEl.className =
+            'text-3xl font-bold mt-1 ' + (wellbeing > 60 ? 'risk-low' : wellbeing != null && wellbeing < 40 ? 'risk-high' : '');
+          $('cardAddictionDate').textContent = scoreRow.date ? 'as of ' + scoreRow.date : '—';
+          const pts = scoreRow.totalPoints ?? pointsRow?.totalPoints;
+          const level = scoreRow.level ?? (pts != null ? Math.floor(pts / 500) + 1 : null);
+          $('cardTotalPoints').textContent = pts != null ? String(pts) : '—';
+          $('cardLevel').textContent = level != null ? 'Level ' + level : '—';
+        } else {
+          addictionEl.textContent = '—';
+          wellbeingEl.textContent = '—';
+          $('cardAddictionDate').textContent = 'No daily scores yet';
+          $('cardTotalPoints').textContent = pointsRow?.totalPoints != null ? String(pointsRow.totalPoints) : '—';
+          $('cardLevel').textContent =
+            pointsRow?.totalPoints != null ? 'Level ' + (Math.floor(pointsRow.totalPoints / 500) + 1) : '—';
+        }
+      }
+
+      function renderBadges(badges) {
+        const el = $('badgesGrid');
+        if (!badges.length) {
+          el.innerHTML = '<p class="text-slate-400 col-span-full">No badges earned yet.</p>';
+          return;
+        }
+        el.innerHTML = badges
+          .map(
+            (b) => `
+          <div class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+            <div class="text-2xl mb-1">${escapeHtml(b.icon || '🏅')}</div>
+            <div class="font-medium text-sm">${escapeHtml(b.name)}</div>
+            <div class="text-xs text-slate-500 mt-1">${escapeHtml(b.description || '')}</div>
+            <div class="text-xs text-slate-400 mt-2">${b.earnedAt ? formatTime(b.earnedAt) : ''}</div>
+          </div>`,
+          )
+          .join('');
+      }
+
       function renderPendingApprovals(missions) {
         const list = missions.pendingApproval || [];
         const el = $('pendingApprovalsList');
@@ -661,10 +883,11 @@
             const mid = btn.getAttribute('data-approve');
             const res = await fetchWithAuth(`/missions/${mid}/approve`, { method: 'POST' });
             if (res.ok) {
+              showToast('ok', 'Mission approved');
               await refreshGamification();
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Approve failed: ' + (err.error || 'HTTP ' + res.status));
+              showToast('error', 'Approve failed: ' + (err.error || 'HTTP ' + res.status));
             }
           });
         });
@@ -673,10 +896,11 @@
             const mid = btn.getAttribute('data-reject');
             const res = await fetchWithAuth(`/missions/${mid}/reject`, { method: 'POST' });
             if (res.ok) {
+              showToast('ok', 'Mission rejected');
               await refreshGamification();
             } else {
               const err = await res.json().catch(() => ({}));
-              alert('Reject failed: ' + (err.error || 'HTTP ' + res.status));
+              showToast('error', 'Reject failed: ' + (err.error || 'HTTP ' + res.status));
             }
           });
         });
@@ -741,6 +965,134 @@
         lastNotifySnapshot = key;
       }
 
+      async function fetchRewards() {
+        const res = await fetchWithAuth('/rewards');
+        if (!res.ok) throw new Error('Rewards: HTTP ' + res.status);
+        const data = await res.json();
+        return data.rewards || [];
+      }
+
+      function renderRewards(rewards) {
+        const active = rewards.filter((r) => !r.isClaimed);
+        const claimed = rewards.filter((r) => r.isClaimed);
+        const activeEl = $('rewardsList');
+        const claimedEl = $('claimedRewardsList');
+
+        if (!active.length) {
+          activeEl.innerHTML = '<p class="text-slate-400">No active rewards.</p>';
+        } else {
+          activeEl.innerHTML = active
+            .map(
+              (r) => `
+            <div class="border border-slate-200 rounded-lg p-2 flex items-center justify-between gap-2">
+              <div>
+                <div class="font-medium">${escapeHtml(r.title)} · ${r.pointsRequired} pts</div>
+                <div class="text-xs text-slate-500">${escapeHtml(r.description || '')}</div>
+              </div>
+              <button type="button" data-del-reward="${r.id}" class="px-2 py-1 bg-red-500 text-white rounded text-xs">Delete</button>
+            </div>`,
+            )
+            .join('');
+          activeEl.querySelectorAll('[data-del-reward]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+              const rid = btn.getAttribute('data-del-reward');
+              const res = await fetchWithAuth(`/rewards/${rid}`, { method: 'DELETE' });
+              if (res.ok) {
+                showToast('ok', 'Reward deleted');
+                await refreshGamification();
+              } else {
+                const err = await res.json().catch(() => ({}));
+                showToast('error', 'Delete failed: ' + (err.error || 'HTTP ' + res.status));
+              }
+            });
+          });
+        }
+
+        if (!claimed.length) {
+          claimedEl.innerHTML = '<p class="text-slate-400">No claimed rewards yet.</p>';
+        } else {
+          claimedEl.innerHTML = claimed
+            .map(
+              (r) => `
+            <div class="border border-slate-200 rounded-lg p-2 bg-slate-50">
+              <div class="font-medium text-sm">${escapeHtml(r.title)} · ${r.pointsRequired} pts</div>
+              <div class="text-xs text-slate-500">${escapeHtml(r.description || '')}</div>
+              <div class="text-xs text-slate-400 mt-1">${r.claimedAt ? 'Claimed ' + formatTime(r.claimedAt) : 'Claimed'}</div>
+            </div>`,
+            )
+            .join('');
+        }
+      }
+
+      function missionHistoryDate(m) {
+        return m.completedAt || m.expiresAt || m.updatedAt || m.createdAt || null;
+      }
+
+      function renderMissionHistory(missions) {
+        const history = [
+          ...(missions.completed || []).map((m) => ({ ...m, _s: 'completed' })),
+          ...(missions.expired || []).map((m) => ({ ...m, _s: 'expired' })),
+        ]
+          .sort((a, b) => {
+            const ta = missionHistoryDate(a);
+            const tb = missionHistoryDate(b);
+            if (!ta && !tb) return 0;
+            if (!ta) return 1;
+            if (!tb) return -1;
+            return new Date(tb).getTime() - new Date(ta).getTime();
+          })
+          .slice(0, 20);
+        const tbody = $('missionHistoryBody');
+        if (!history.length) {
+          tbody.innerHTML =
+            '<tr><td colspan="4" class="px-3 py-4 text-center text-slate-400">No completed or expired missions</td></tr>';
+          return;
+        }
+        const colour = {
+          completed: 'text-green-600',
+          expired: 'text-slate-400',
+        };
+        tbody.innerHTML = history
+          .map(
+            (m) => `
+          <tr class="border-t border-slate-100">
+            <td class="px-3 py-2 text-xs text-slate-500">${missionHistoryDate(m) ? formatTime(missionHistoryDate(m)) : '—'}</td>
+            <td class="px-3 py-2">${escapeHtml(m.title)}</td>
+            <td class="px-3 py-2 font-medium ${colour[m._s] || ''}">${m._s}</td>
+            <td class="px-3 py-2">${m.points} pts</td>
+          </tr>`,
+          )
+          .join('');
+      }
+
+      $('btnCreateReward').addEventListener('click', async () => {
+        const title = $('rewardTitle').value.trim();
+        const description = $('rewardDesc').value.trim();
+        const pointsRequired = parseInt($('rewardPoints').value, 10);
+        if (!title || !pointsRequired || pointsRequired < 1) {
+          showToast('error', 'Enter a title and a positive points value');
+          return;
+        }
+        try {
+          const res = await fetchWithAuth('/rewards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description, pointsRequired }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'HTTP ' + res.status);
+          }
+          $('rewardTitle').value = '';
+          $('rewardDesc').value = '';
+          await refreshGamification();
+          showToast('ok', 'Reward created');
+          showBanner('ok', 'Reward created.');
+        } catch (err) {
+          showToast('error', err.message || String(err));
+        }
+      });
+
       async function fetchCustomMissions() {
         const res = await fetchWithAuth('/custom-missions');
         if (!res.ok) throw new Error('Custom missions: HTTP ' + res.status);
@@ -758,17 +1110,20 @@
         tbody.innerHTML = missions
           .map(
             (m) => `
-          <tr class="border-t border-slate-100">
+          <tr class="border-t border-slate-100" data-mission-id="${m.id}">
             <td class="px-3 py-2 font-medium">${escapeHtml(m.title)}</td>
             <td class="px-3 py-2 text-slate-600">${escapeHtml(m.description)}</td>
             <td class="px-3 py-2">${m.points}</td>
-            <td class="px-3 py-2">
-              <button type="button" data-edit-custom="${m.id}" class="px-2 py-1 text-xs bg-slate-200 rounded mr-1">Edit</button>
-              <button type="button" data-del-custom="${m.id}" class="px-2 py-1 text-xs bg-red-500 text-white rounded">Del</button>
+            <td class="px-3 py-2 whitespace-nowrap">
+              <button type="button" data-edit-custom="${m.id}"
+                class="px-2 py-1 text-xs bg-slate-200 rounded mr-1">Edit</button>
+              <button type="button" data-del-custom="${m.id}"
+                class="px-2 py-1 text-xs bg-red-500 text-white rounded">Delete</button>
             </td>
           </tr>`,
           )
           .join('');
+
         tbody.querySelectorAll('[data-edit-custom]').forEach((btn) => {
           btn.addEventListener('click', () => {
             const id = btn.getAttribute('data-edit-custom');
@@ -778,21 +1133,42 @@
             if (title == null) return;
             const description = prompt('Description', row.description);
             if (description == null) return;
-            const points = parseInt(prompt('Points', String(row.points)) || '', 10);
-            if (!points || points < 5) return alert('Points 5–500 required');
-            void fetchWithAuth(`/custom-missions/${id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ title, description, points }),
-            }).then((res) => (res.ok ? refreshGamification() : alert('Update failed')));
+            const pointsStr = prompt('Points (5–500)', String(row.points));
+            if (pointsStr == null) return;
+            const points = parseInt(pointsStr, 10);
+            if (!points || points < 5) {
+              showToast('error', 'Enter points between 5 and 500');
+              return;
+            }
+            void (async () => {
+              const res = await fetchWithAuth(`/custom-missions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, description, points }),
+              });
+              if (res.ok) {
+                showToast('ok', 'Custom mission updated');
+                await refreshGamification();
+              } else {
+                const err = await res.json().catch(() => ({}));
+                showToast('error', 'Update failed: ' + (err.error || res.status));
+              }
+            })();
           });
         });
+
         tbody.querySelectorAll('[data-del-custom]').forEach((btn) => {
           btn.addEventListener('click', async () => {
             const id = btn.getAttribute('data-del-custom');
-            if (!confirm('Delete?')) return;
+            if (!confirm('Delete this custom mission?')) return;
             const res = await fetchWithAuth(`/custom-missions/${id}`, { method: 'DELETE' });
-            if (res.ok) await refreshGamification();
+            if (res.ok) {
+              showToast('ok', 'Custom mission deleted');
+              await refreshGamification();
+            } else {
+              const err = await res.json().catch(() => ({}));
+              showToast('error', 'Delete failed: ' + (err.error || res.status));
+            }
           });
         });
       }
@@ -802,30 +1178,50 @@
         const title = $('customTitle').value.trim();
         const description = $('customDesc').value.trim();
         const points = parseInt($('customPoints').value, 10);
-        if (!title || !description || points < 5) return alert('Fill title, description, points 5–500');
-        const res = await fetchWithAuth('/custom-missions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, description, points }),
-        });
-        if (res.ok) {
+        if (!title || !description || !points || points < 5) {
+          showToast('error', 'Fill in title, description, and points (5–500)');
+          return;
+        }
+        try {
+          const res = await fetchWithAuth('/custom-missions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description, points }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'HTTP ' + res.status);
+          }
           $('customTitle').value = '';
           $('customDesc').value = '';
           await refreshGamification();
-        } else alert('Create failed');
+          showToast('ok', 'Custom mission created');
+          showBanner('ok', 'Custom mission created.');
+        } catch (err) {
+          showToast('error', err.message || String(err));
+        }
       });
 
       async function refreshGamification() {
         try {
-          const [missions, points, customMissions] = await Promise.all([
+          renderChildProfile();
+          const [missions, points, rewards, customMissions, latestScore, badges] = await Promise.all([
             fetchMissions(),
             fetchChildPoints(),
+            fetchRewards().catch(() => []),
             fetchCustomMissions().catch(() => []),
+            fetchLatestScore().catch(() => null),
+            fetchChildBadges().catch(() => []),
           ]);
           renderPendingApprovals(missions);
           renderEscapeLog(missions);
+          renderMissionHistory(missions);
+          renderRewards(rewards);
           renderCustomMissions(customMissions);
+          renderLatestScores(latestScore, points);
+          renderBadges(badges);
           $('bonusCurrentPoints').textContent = String(points.totalPoints ?? '—');
+          $('cardTotalPoints').textContent = String(points.totalPoints ?? '—');
           checkBrowserNotifications(missions);
           return missions;
         } catch (err) {
@@ -886,7 +1282,7 @@
         const pts = parseInt($('bonusPoints').value, 10);
         const reason = $('bonusReason').value.trim();
         if (!pts || pts < 1) {
-          alert('Enter a positive points value');
+          showToast('error', 'Enter a positive points value');
           return;
         }
         try {
@@ -900,9 +1296,10 @@
             throw new Error(err.error || 'HTTP ' + res.status);
           }
           await refreshGamification();
+          showToast('ok', 'Bonus points awarded');
           showBanner('ok', 'Bonus points awarded.');
         } catch (err) {
-          alert(err.message || String(err));
+          showToast('error', err.message || String(err));
         }
       });
 
@@ -1053,6 +1450,18 @@
         refreshAll();
       });
 
+      $('childId').addEventListener('change', () => {
+        renderChildProfile();
+        refreshAll();
+      });
+
+      document.querySelectorAll('#tabBar .tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          switchTab(btn.getAttribute('data-tab'));
+        });
+      });
+
+      switchTab('monitoring');
       refreshAll();
       scheduleAuto();
     })();

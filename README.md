@@ -486,6 +486,7 @@ See also `MobileApp/TESTING.md` if present in the repo.
 | **4.5** | — | Complete | **Smart mission generation** — adaptive risk threshold, cumulative burst detection, category-specific templates, escalation points, 15-min cooldown |
 | **5** | — | Complete | **Gamification frontend** — React Navigation UI, parent approval / reject / bonus, escape penalty, `SYSTEM_ALERT_WINDOW` mission overlay + notification fallback, dashboard at `/demo.html`, `fetchWithAuth` POST fix |
 | **5.6** | — | Complete | **Exposure penalty + player levels** — weekly risky-event count adds up to +20 to daily addiction score; `GET /api/scores/:childId` returns `level`; Profile shows level from points |
+| **5.7** | — | Complete | **Parent dashboard enhancement** — Monitoring vs Parent tabs; child profile, latest scores/level/points, earned badges, mission history (completed+expired, last 20 with dates), claimed rewards history, toast feedback on actions |
 | **6** | 13 – 31 July 2026 | Planned | Hardening, tests, final demo & report |
 
 ---
@@ -584,7 +585,7 @@ Use **Arabic OCR Debug Tool** in `demo_dashboard.html` to upload a screenshot wi
 
 ---
 
-**Current milestone:** Sprint **5** — gamification mobile UI, parent approval flow, escape penalty, and parent dashboard tools.
+**Current milestone:** Sprint **5.7** — parent dashboard tabs (Monitoring / Parent), badges, latest scores & level, toast feedback; Sprint 5.6 exposure penalty + player levels.
 
 ---
 
@@ -692,7 +693,16 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | **Smart difficulty** | Age baseline (`<10` easy, `≥13` hard) + on-device performance store (`gameStats.ts`); strong runs escalate one step; N-back level persists across missions |
 | **Points refresh** | Pull on focus / pull-to-refresh; optional 60s poll on Missions & Profile (no push) |
 
-**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications. Sections: **Pending approvals** (approve/reject), **Bonus points**, **Escape log**, **Rewards management** (create/delete), and **Mission history** (completed / pending / failed / expired). All actions use `fetchWithAuth(path, { method, body })` with the parent JWT.
+**Parent dashboard:** [`http://localhost:3000/demo.html`](http://localhost:3000/demo.html) (served from `backend/public/demo.html`). Root [`demo_dashboard.html`](demo_dashboard.html) is kept in sync. **For browser notifications, use the backend URL** — `file://` may block notifications.
+
+Two tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Monitoring** | Vision model debug, Arabic OCR debug, summary cards, 7-day scores chart, recent screen events, API activity log |
+| **Parent Dashboard** | Child profile (static seed map), latest addiction/wellbeing scores, total points & level (`GET /api/scores/:childId`), pending approvals (approve/reject with toasts), mission history (completed + expired, last 20 with dates), earned badges (`GET /api/badges/child/:childId`), active rewards + claimed history, bonus points, escape log, custom missions |
+
+All actions use `fetchWithAuth(path, { method, body })` with the parent JWT from `GET /api/dev/parent-token`.
 
 **Mission overlay (Android):** grant **Settings → Display over other apps** for the child app. Native `OverlayService` shows a full-screen card on Chrome/Instagram/etc.; see [`MobileApp/android/NATIVE_SETUP.md`](MobileApp/android/NATIVE_SETUP.md). **Rebuild required** after native overlay changes (`npm run android`).
 
@@ -761,7 +771,7 @@ VALUES ('safety', 'Your question?', ARRAY['Wrong', 'Correct', 'Wrong2', 'Wrong3'
 ## Next Steps (post Sprint 5.5)
 
 1. **Server-side game stats** – persist `child_game_stats` so smart difficulty follows the child across devices.
-2. **Parent dashboard polish** – multi-child list, mission history charts.
+2. **Parent dashboard polish** – multi-child list (`GET /api/children`), mission history charts.
 3. **FCM push** (optional) – replace dashboard polling for approvals.
 4. **Quiz admin UI** – web form to add/edit questions without raw SQL.
 
@@ -789,5 +799,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 1 June 2026  
-**Status:** Sprint 5 complete — gamification UI, mission overlay, parent dashboard; Sprint 4.5 smart mission generation; on-device OCR + TFLite NSFW (Sprint 3.14).
+**Last updated:** 5 June 2026  
+**Status:** Sprint 5.7 complete — parent dashboard tabs, badges, latest scores & level, toast feedback; Sprint 5.6 exposure penalty + player levels; on-device OCR + TFLite NSFW (Sprint 3.14).
