@@ -8,7 +8,10 @@ import {
   updateChildInterestsSchema,
   updateChildProfileSchema,
 } from '../validators/child.validator';
-import { checkAndAwardBadges } from '../services/gamificationService';
+import {
+  checkAndAwardBadges,
+  revokeMismatchedAgeBadges,
+} from '../services/gamificationService';
 import { query } from '../db/pool';
 import { logger } from '../utils/logger';
 
@@ -110,6 +113,7 @@ router.put(
         return;
       }
 
+      const revokedBadges = await revokeMismatchedAgeBadges(childId);
       const newBadges = await checkAndAwardBadges(childId);
 
       res.json({
@@ -117,6 +121,7 @@ router.put(
         childId,
         displayName: rows[0].display_name,
         birthYear: rows[0].birth_year,
+        revokedBadges,
         newBadges,
       });
     } catch (err) {

@@ -679,7 +679,7 @@ Pure game logic lives in `MobileApp/src/missions/games/gameLogic.ts` (unit-teste
 | GET | `/api/child/interests/:childId` | Parent | Read child interests (`sports`, `art`, `reading`, `family`, `brain`) |
 | PUT | `/api/child/interests` | Parent | Update child interests (parent must own child) |
 
-**Migrations:** `007`–`014` — run `npm run db:migrate` from `backend/` (`010` parent approval/escape; `011` quiz bank; `012` custom missions; `014` child interests).
+**Migrations:** `007`–`015` — run `npm run db:migrate` from `backend/` (`010` parent approval/escape; `011` quiz bank; `012` custom missions; `014` child interests; `015` badge cleanup).
 
 **Screen events:** `POST /api/screen-events` response includes `newMission` when a mission is created or **re-surfaced** during cooldown (`missionGeneration` explains `cooldown_active`, etc.). Mobile calls `presentMissionFromCapture()` → native overlay or notification + `MissionScreen`.
 
@@ -730,9 +730,11 @@ All actions use `fetchWithAuth(path, { method, body })` with the parent JWT from
 | **Age badges** | `age_range` | Little Explorer (6-9), Young Adventurer (10-12), Teen Champion (13-17) | Auto-awarded from `children.birth_year` on `checkAndAwardBadges` |
 | **Special badges** | `wellbeing_score_streak`, `cognitive_exercises_done`, `trigger_reason_count` | Well-being Warrior, Brain Trainer, Risk Buster | Legacy Sprint 4 rules |
 
-Age ranges are stored in `badges.requirement_config` JSONB (`{"min":10,"max":12}`). Only one age badge per child is expected (matching their current age band).
+Age ranges are stored in `badges.requirement_config` JSONB (`{"min":10,"max":12}`). Only **one** age badge per child is kept — `PUT /api/child/profile` revokes mismatched age bands (and deducts their bonus points) before re-awarding the matching band.
 
-**Badge ranks guide (UX):** Parent dashboard **Badge ranks** button (earned-badges card) and child app **Ranks** header action open a progress view: all tiers grouped by category, current points/missions, progress bars toward the next point/mission badge, and locked special badges with requirement text. Legacy duplicate tiers (`First Mission`, `Mission Master`) are hidden in the guide.
+**Badge cleanup (`015_badge_cleanup.sql`):** Removes legacy duplicate definitions (`First Mission`, `Mission Master`) and cleans existing `child_badges` rows that no longer match the child's age. Superseded by **First Steps** / **Helper**.
+
+**Badge ranks guide (UX):** Parent dashboard **Badge ranks** button (earned-badges card) and child app **Ranks** header action open a progress view: all tiers grouped by category, current points/missions, progress bars toward the next point/mission badge, and locked special badges with requirement text.
 
 **Migration:** `008_add_smart_badges.sql` adds tiered point/mission badges and age badges.
 
@@ -755,6 +757,16 @@ npm run smoke:sprint58
 ```
 
 Script: [`backend/scripts/smoke-sprint58.ts`](backend/scripts/smoke-sprint58.ts) — interests API, age-based screen caps, mission tie-breaker (multiple ages/interests), wellbeing proxy seeding, daily score job, scores/level API, parent approval → physical proxy increment.
+
+**Sprint 5.9 backend tests (birth year, badge ranks data, screen caps):**
+
+```powershell
+cd backend
+npm run dev          # separate terminal
+npm run test:sprint59
+```
+
+Script: [`backend/scripts/test-sprint59.ts`](backend/scripts/test-sprint59.ts) — `GET/PUT /api/child/profile`, age badge re-award (`POST /api/dev/reward-age-badges/:childId`), `fetchRecommendedScreenMinutes` caps (120/150/180), ranks source data (`/api/badges?childId=`, points, mission count, level). Prints a manual UI checklist on success.
 
 ---
 

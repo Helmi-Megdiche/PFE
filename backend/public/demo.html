@@ -592,6 +592,9 @@
           $('profileStatus').textContent =
             age != null ? 'Saved — age ' + age : 'Saved';
           showToast('ok', 'Child age updated');
+          if (data.revokedBadges?.length) {
+            showToast('ok', 'Age badge' + (data.revokedBadges.length > 1 ? 's' : '') + ' updated: removed ' + data.revokedBadges.join(', '));
+          }
           if (data.newBadges?.length) {
             showToast('ok', 'New badge' + (data.newBadges.length > 1 ? 's' : '') + ': ' + data.newBadges.join(', '));
           }

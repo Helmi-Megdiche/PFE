@@ -6,6 +6,7 @@ import {
   getChildLevel,
   getChildPoints,
   parseAgeRange,
+  revokeMismatchedAgeBadges,
 } from '../src/services/gamificationService';
 
 jest.mock('../src/db/pool', () => ({
@@ -119,7 +120,7 @@ describe('gamificationService', () => {
     expect(ageMatchesRange(13, range!)).toBe(false);
   });
 
-  it('awards First Mission badge when one mission completed', async () => {
+  it('awards First Steps badge when one mission completed', async () => {
     mockedCompleted.mockResolvedValue(1);
     mockedCognitive.mockResolvedValue(0);
     mockedRisky.mockResolvedValue(0);
@@ -130,9 +131,9 @@ describe('gamificationService', () => {
         rows: [
           {
             id: 'badge-1',
-            name: 'First Mission',
-            description: 'Complete your first mission',
-            icon: '🎯',
+            name: 'First Steps',
+            description: 'Complete 1 mission',
+            icon: '👣',
             requirement_type: 'missions_completed',
             requirement_value: 1,
             requirement_config: null,
@@ -148,7 +149,7 @@ describe('gamificationService', () => {
 
     const awarded = await checkAndAwardBadges('child-1');
 
-    expect(awarded).toContain('First Mission');
+    expect(awarded).toContain('First Steps');
     expect(mockedQuery).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO child_badges'),
       ['child-1', 'badge-1'],
@@ -199,9 +200,9 @@ describe('gamificationService', () => {
         rows: [
           {
             id: 'badge-1',
-            name: 'First Mission',
-            description: 'Complete your first mission',
-            icon: '🎯',
+            name: 'First Steps',
+            description: 'Complete 1 mission',
+            icon: '👣',
             requirement_type: 'missions_completed',
             requirement_value: 1,
             requirement_config: null,
@@ -217,6 +218,68 @@ describe('gamificationService', () => {
     expect(awarded).toEqual([]);
     expect(mockedQuery).not.toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO child_badges'),
+      expect.anything(),
+    );
+  });
+
+  it('revokeMismatchedAgeBadges removes stale bands and deducts points', async () => {
+    mockedAge.mockResolvedValue(12);
+
+    mockedQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            badge_id: 'age-teen',
+            id: 'age-teen',
+            name: 'Teen Champion',
+            description: null,
+            icon: null,
+            requirement_type: 'age_range',
+            requirement_value: null,
+            requirement_config: { min: 13, max: 17 },
+            points_awarded: 40,
+          },
+        ],
+        rowCount: 1,
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [{ total_points: 100 }], rowCount: 1 });
+
+    const revoked = await revokeMismatchedAgeBadges('child-1');
+
+    expect(revoked).toEqual(['Teen Champion']);
+    expect(mockedQuery).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM child_badges'),
+      ['child-1', 'age-teen'],
+    );
+  });
+
+  it('revokeMismatchedAgeBadges keeps matching age badge', async () => {
+    mockedAge.mockResolvedValue(12);
+
+    mockedQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          badge_id: 'age-young',
+          id: 'age-young',
+          name: 'Young Adventurer',
+          description: null,
+          icon: null,
+          requirement_type: 'age_range',
+          requirement_value: null,
+          requirement_config: { min: 10, max: 12 },
+          points_awarded: 30,
+        },
+      ],
+      rowCount: 1,
+    });
+
+    const revoked = await revokeMismatchedAgeBadges('child-1');
+
+    expect(revoked).toEqual([]);
+    expect(mockedQuery).not.toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM child_badges'),
       expect.anything(),
     );
   });

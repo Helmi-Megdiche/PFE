@@ -14,7 +14,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "smoke:missions": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-missions.ps1",
-    "smoke:sprint58": "tsx scripts/smoke-sprint58.ts"
+    "smoke:sprint58": "tsx scripts/smoke-sprint58.ts",
+    "test:sprint59": "tsx scripts/test-sprint59.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
+import {
+  checkAndAwardBadges,
+  revokeMismatchedAgeBadges,
+} from '../services/gamificationService';
 
 const router = Router();
 
@@ -57,6 +61,29 @@ router.get('/parent-token', (_req, res) => {
   );
 
   res.json({ token, expiresIn: '7d' });
+});
+
+/**
+ * POST /api/dev/reward-age-badges/:childId
+ * Development only — re-run badge eligibility (e.g. after birth year change).
+ */
+router.post('/reward-age-badges/:childId', async (req, res) => {
+  if (env.isProduction) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const { childId } = req.params;
+  try {
+    const revokedBadges = await revokeMismatchedAgeBadges(childId);
+    const newBadges = await checkAndAwardBadges(childId);
+    res.json({ success: true, childId, revokedBadges, newBadges });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Failed to award badges',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 });
 
 export default router;

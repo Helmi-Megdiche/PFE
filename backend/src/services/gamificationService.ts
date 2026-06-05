@@ -52,6 +52,51 @@ export function ageMatchesRange(age: number, range: AgeRange): boolean {
   return age >= range.min && age <= range.max;
 }
 
+/** Legacy Sprint 4 badges superseded by First Steps / Helper (removed in 015). */
+export const LEGACY_DUPLICATE_BADGE_NAMES = ['First Mission', 'Mission Master'] as const;
+
+interface EarnedAgeBadgeRow extends BadgeRow {
+  badge_id: string;
+}
+
+/**
+ * Remove age-band badges that no longer match the child's current age.
+ * Deducts bonus points that were awarded with each revoked badge.
+ */
+export async function revokeMismatchedAgeBadges(childId: string): Promise<string[]> {
+  const age = await getChildAge(childId);
+  if (age == null) {
+    return [];
+  }
+
+  const { rows } = await query<EarnedAgeBadgeRow>(
+    `SELECT b.id AS badge_id, b.name, b.description, b.icon, b.requirement_type,
+            b.requirement_value, b.requirement_config, b.points_awarded
+     FROM child_badges cb
+     JOIN badges b ON b.id = cb.badge_id
+     WHERE cb.child_id = $1 AND b.requirement_type = 'age_range'`,
+    [childId],
+  );
+
+  const revoked: string[] = [];
+  for (const badge of rows) {
+    const range = parseAgeRange(badge);
+    if (range == null || ageMatchesRange(age, range)) {
+      continue;
+    }
+    await query(
+      `DELETE FROM child_badges WHERE child_id = $1 AND badge_id = $2`,
+      [childId, badge.badge_id],
+    );
+    if (badge.points_awarded > 0) {
+      await deductPoints(childId, badge.points_awarded);
+    }
+    revoked.push(badge.name);
+  }
+
+  return revoked;
+}
+
 export async function addPoints(childId: string, points: number): Promise<void> {
   if (points <= 0) {
     return;
