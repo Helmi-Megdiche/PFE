@@ -127,13 +127,13 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` periodic chain respects app-aware intervals (interval **0** clears that timer). Native frames may still arrive and are debounced/OCR-limited.
 
-**Mission overlay debounce:** the same pending mission is not re-shown within **90s**; **re-surfaced** missions are suppressed for **8s** after monitoring starts (avoids quiz spam on toggle-on). Overlays are skipped when the foreground app is a **launcher/home** package (`com.miui.home`, etc.).
+**Mission overlay debounce:** the same pending mission is not re-shown within **90s** unless the backend **re-surfaces** it during cooldown (`reSurfaced: true` bypasses debounce). **Re-surfaced** missions are suppressed for **8s** after monitoring starts (avoids quiz spam on toggle-on). Overlays are skipped only when the resolved foreground is a **launcher/home** package; if MIUI misreports the launcher while OCR shows Messenger/Chrome, `inferAppPackageFromOcr` overrides attribution so the quiz appears on the app in use.
 
-**Launcher recents bleed:** when the foreground app is the home launcher but OCR is from a **Chrome recent card** (pornhub thumbnail on MIUI home), the event is stored as **neutral** — enforcement applies when the child opens Chrome (`com.android.chrome` foreground).
+**Launcher recents bleed:** when the foreground app is the home launcher and OCR is only a **recents-widget thumbnail** (pornhub card on MIUI home), the event is stored as **neutral**. Full **browser SERP** or **Messenger chat** OCR is not neutralized — enforcement runs on the inferred app package.
 
 **Filtered SERP cap:** on Google/Bing/DuckDuckGo pages with SafeSearch / **Mode IA** / **Flouter** UI and TFLite &lt; 30, combined risk is capped (~24) unless OCR shows an explicit **search-box** query (`Q porn`, `+ Q nsfw`, etc.). Body-only keywords in result titles (e.g. youporn) do not bypass the cap.
 
-**Post-mission capture:** when a blocking mission ends, foreground package is **snapshotted on pause** and may be reused for **120s** if UsageStats briefly returns `unknown` after resume; `resumeCapture` also **refreshes** the foreground cache. OCR + TFLite are capped at **30s** per frame (`vision_timeout` skip) so `isProcessing` cannot block the pipeline after long overlays.
+**Post-mission capture:** when a blocking mission ends, foreground package is **snapshotted on pause** and may be reused for **120s** if UsageStats briefly returns `unknown` after resume; `resumeCapture` also **refreshes** the foreground cache. The overlay is shown **before** capture pauses so MIUI does not attribute the frame to SafeGuard. OCR + TFLite are capped at **30s** per frame (`vision_timeout` skip); a **25s processing watchdog** and generation token clear stuck `isProcessing` after hung native/API calls. Foreground lookups are **single-flight** serialized to avoid RN bridge stalls.
 
 **Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
@@ -292,7 +292,7 @@ Optional in `backend/.env` (see `backend/.env.example`):
 MISSION_RISK_COOLDOWN_MINUTES=2
 ```
 
-Suppresses duplicate risky-content missions for N minutes after one is created (production default **15**). During cooldown, a further risky capture still returns `newMission` for the **existing pending** mission (`reSurfaced: true`) so the mobile overlay can block again.
+Suppresses duplicate risky-content missions for N minutes after one is created (production default **15**). During cooldown, a further risky capture still returns `newMission` for the **existing** mission (`reSurfaced: true`) — including **pending**, **failed** (re-opened), and **completed** / **pending_approval** (overlay-only enforcement) — so the mobile quiz can block again without creating duplicates.
 
 ### API Base URL for Physical Devices
 

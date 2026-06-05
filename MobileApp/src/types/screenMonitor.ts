@@ -43,7 +43,9 @@ export interface CaptureCycleResult {
     | 'storage'
     | 'ocr'
     | 'mission'
-    | 'vision_timeout';
+    | 'vision_timeout'
+    | 'api_timeout'
+    | 'stale';
   event?: ScreenEventPayload;
   error?: string;
 }

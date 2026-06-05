@@ -10,11 +10,12 @@ import {
   listScreenEventsQuerySchema,
 } from '../validators/screenEvents.validator';
 import { query } from '../db/pool';
+import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { generateMissionFromRisk } from '../services/missionGenerator';
 import {
   bumpResurfacedMission,
-  getActivePendingMission,
+  getResurfaceableRiskyMission,
 } from '../services/missionHelpers';
 
 const router = Router();
@@ -143,7 +144,10 @@ router.post(
             (missionResult.reason === 'cooldown_active' ||
               missionResult.reason === 'pending_limit_reached')
           ) {
-            const active = await getActivePendingMission(childId);
+            const active = await getResurfaceableRiskyMission(
+              childId,
+              env.missionRiskCooldownMinutes,
+            );
             if (active) {
               const bumped = await bumpResurfacedMission(active);
               const meta = (bumped.metadata ?? {}) as Record<string, unknown>;

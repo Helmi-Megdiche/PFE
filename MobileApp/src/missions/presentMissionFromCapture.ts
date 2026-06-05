@@ -39,9 +39,9 @@ export async function presentMissionFromCapture(
   options?: PresentMissionOptions,
 ): Promise<void> {
   const overlayMetadata = metadataForOverlay(params);
-  beginMissionCaptureSession();
 
   if (Platform.OS !== 'android' || !isOverlayMissionAvailable()) {
+    beginMissionCaptureSession();
     navigateToMissionScreen({
       missionId: params.missionId,
       title: params.title,
@@ -56,6 +56,7 @@ export async function presentMissionFromCapture(
   const canOverlay = await hasOverlayPermission();
   if (!canOverlay) {
     scWarn('Overlay permission not granted — notification + in-app fallback');
+    beginMissionCaptureSession();
     await showMissionNotification(params);
     navigateToMissionScreen({
       missionId: params.missionId,
@@ -68,16 +69,18 @@ export async function presentMissionFromCapture(
     return;
   }
 
-  if (!options?.skipNotification) {
-    await showMissionNotification(params);
-  }
-
   try {
     await showMissionOverlay({ ...params, metadata: overlayMetadata });
+    beginMissionCaptureSession();
     clearStaleNotificationMissionLaunch();
     scLog('Mission overlay shown', { missionId: params.missionId });
+    if (!options?.skipNotification) {
+      void showMissionNotification(params);
+    }
   } catch (err) {
     scWarn('showMissionOverlay failed', err);
+    beginMissionCaptureSession();
+    await showMissionNotification(params);
     navigateToMissionScreen({
       missionId: params.missionId,
       title: params.title,

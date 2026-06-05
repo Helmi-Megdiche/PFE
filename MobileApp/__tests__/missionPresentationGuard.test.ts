@@ -24,4 +24,11 @@ describe('missionPresentationGuard', () => {
     expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(false);
     expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(true);
   });
+
+  it('re-surfaced missions bypass the 90s presentation debounce', () => {
+    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(true);
+    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(false);
+    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(true);
+    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(true);
+  });
 });

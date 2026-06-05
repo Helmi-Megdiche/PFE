@@ -52,14 +52,20 @@ export async function openUsageAccessSettings(): Promise<void> {
   await Linking.openSettings();
 }
 
-/**
- * Resolves foreground app — never throws; returns unknown if module missing.
- */
-export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
+const UNKNOWN_FOREGROUND: ForegroundAppInfo = {
+  packageName: 'unknown',
+  appLabel: 'unknown',
+  source: 'none',
+};
+
+/** One native UsageStats lookup at a time — concurrent calls were blocking the RN bridge. */
+let foregroundLookupInFlight: Promise<ForegroundAppInfo> | null = null;
+
+async function resolveForegroundAppOnce(): Promise<ForegroundAppInfo> {
   const mod = getModule();
   if (!mod) {
     scWarn('ForegroundApp module not linked');
-    return { packageName: 'unknown', appLabel: 'unknown', source: 'none' };
+    return UNKNOWN_FOREGROUND;
   }
 
   try {
@@ -81,7 +87,23 @@ export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
     scWarn('resolveForegroundApp failed', err);
   }
 
-  return { packageName: 'unknown', appLabel: 'unknown', source: 'none' };
+  return UNKNOWN_FOREGROUND;
+}
+
+/**
+ * Resolves foreground app — never throws; returns unknown if module missing.
+ * Concurrent callers share one in-flight native lookup.
+ */
+export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
+  if (foregroundLookupInFlight) {
+    return foregroundLookupInFlight;
+  }
+
+  foregroundLookupInFlight = resolveForegroundAppOnce().finally(() => {
+    foregroundLookupInFlight = null;
+  });
+
+  return foregroundLookupInFlight;
 }
 
 /** Retry briefly — UsageStats can return null during MediaProjection capture. */

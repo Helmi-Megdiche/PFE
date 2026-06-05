@@ -22,4 +22,16 @@ describe('launcherCaptureContext', () => {
     const text = 'Thu, 04 June Facebook Instagram Gallery Google WhatsApp';
     expect(shouldNeutralizeLauncherWidgetCapture('com.miui.home', text)).toBe(false);
   });
+
+  it('does not neutralize full Google search porn results on MIUI home misreport', () => {
+    const text =
+      '2% google.com/sea + Q porn PH Mode IA Tous Images Vidéos Vidéos Pornhub Google P';
+    expect(shouldNeutralizeLauncherWidgetCapture('com.miui.home', text)).toBe(false);
+  });
+
+  it('does not neutralize Messenger chat misreported as launcher', () => {
+    const text =
+      'rayen Active 52 minut... Efhem rouhek w koli sahbi khanaarf chnaaml w kh';
+    expect(shouldNeutralizeLauncherWidgetCapture('com.miui.home', text)).toBe(false);
+  });
 });

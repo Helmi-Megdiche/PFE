@@ -16,7 +16,16 @@ import {
 import { promptOverlayPermissionIfNeeded } from '../native/overlayPermission';
 import { navigateToMissionScreen } from '../navigation/navigationRef';
 import { forceEndMissionCaptureSession } from '../utils/missionCaptureSession';
+import { ApiHttpError } from '../services/apiClient';
 import { scError, scLog } from '../utils/screenCaptureLogger';
+
+function isMissionAlreadyFinishedError(err: unknown): boolean {
+  if (err instanceof ApiHttpError && err.status === 409) {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /already completed|awaiting approval/i.test(message);
+}
 
 function isQuizNotPassedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -72,6 +81,15 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
     forceEndMissionCaptureSession();
     showBriefMessage(result.message);
   } catch (err) {
+    if (event.action === 'complete' && isMissionAlreadyFinishedError(err)) {
+      scLog('Mission already finished — dismissing enforcement overlay');
+      clearStaleNotificationMissionLaunch();
+      await hideMissionOverlay();
+      forceEndMissionCaptureSession();
+      showBriefMessage('Stay on safe content — mission already completed.');
+      return;
+    }
+
     if (
       event.action === 'complete' &&
       event.missionType === 'quiz' &&

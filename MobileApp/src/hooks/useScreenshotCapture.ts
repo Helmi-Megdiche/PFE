@@ -28,6 +28,10 @@ import {
   RISK_INTERVAL_LOW_MS,
 } from '../utils/adaptiveCapture';
 import { getAppCategory, isLauncherPackage, type AppCategory } from '../utils/appCapturePolicy';
+import {
+  inferAppPackageFromOcr,
+  shouldOverridePackageWithOcrInference,
+} from '../utils/inferAppPackageFromOcr';
 import { shouldNeutralizeLauncherWidgetCapture } from '../utils/launcherCaptureContext';
 import {
   markMonitoringStarted,
@@ -69,11 +73,15 @@ const DEFAULT_MAX_TEXT = 500;
 const SYSTEM_UI_PACKAGE = 'com.android.systemui';
 
 /** Max age for cached foreground package when live lookup fails at capture time. */
-const FOREGROUND_CACHE_MAX_AGE_MS = 15_000;
+const FOREGROUND_CACHE_MAX_AGE_MS = 120_000;
 /** After a mission ends, reuse pre-pause Chrome/browser package if UsageStats is briefly null. */
 const MISSION_FOREGROUND_GRACE_MS = 120_000;
 /** OCR + TFLite must finish within this window (Arabic Tesseract timeout is 25s). */
-const VISION_PIPELINE_TIMEOUT_MS = 30_000;
+const VISION_PIPELINE_TIMEOUT_MS = 25_000;
+const FOREGROUND_LOOKUP_TIMEOUT_MS = 2_500;
+const API_POST_TIMEOUT_MS = 12_000;
+/** Force-release OCR lock if a frame handler never settles (prevents permanent capture stall). */
+const FRAME_PROCESSING_WATCHDOG_MS = 25_000;
 
 function isUsableForegroundPackage(pkg: string | null | undefined): pkg is string {
   if (!pkg || pkg === 'unknown' || pkg === SYSTEM_UI_PACKAGE) {
@@ -125,6 +133,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const [avgRiskScore, setAvgRiskScore] = useState<number | null>(null);
 
   const isProcessingRef = useRef(false);
+  const processingGenerationRef = useRef(0);
   const isStartingRef = useRef(false);
   const isMonitoringRef = useRef(false);
   const lastCaptureMsRef = useRef(0);
@@ -169,17 +178,21 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     }
   }, []);
 
-  const clearAdaptiveTimers = useCallback(() => {
+  const clearCaptureTimers = useCallback(() => {
     clearPeriodicTimer();
     if (followUpTimerRef.current) {
       clearTimeout(followUpTimerRef.current);
       followUpTimerRef.current = null;
     }
+  }, [clearPeriodicTimer]);
+
+  const clearAdaptiveTimers = useCallback(() => {
+    clearCaptureTimers();
     if (appPollTimerRef.current) {
       clearInterval(appPollTimerRef.current);
       appPollTimerRef.current = null;
     }
-  }, [clearPeriodicTimer]);
+  }, [clearCaptureTimers]);
 
   const tryCaptureNow = useCallback(async (reason: string): Promise<void> => {
     if (!isMonitoringRef.current || isProcessingRef.current) {
@@ -337,26 +350,61 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         return { success: false, skippedReason: 'ocr' };
       }
 
+      const generation = ++processingGenerationRef.current;
       isProcessingRef.current = true;
       const { filePath, imageUri, appPackage } = event;
-      setLastCapturePath(filePath);
-      const ocrInput = toMlKitImageUri(imageUri ?? filePath);
-      scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
+      const isActive = () => processingGenerationRef.current === generation;
+
+      const processingWatchdog = setTimeout(() => {
+        if (!isActive()) {
+          return;
+        }
+        processingGenerationRef.current += 1;
+        isProcessingRef.current = false;
+        scWarn('Processing watchdog — stale frame aborted', {
+          filePath,
+          timeoutMs: FRAME_PROCESSING_WATCHDOG_MS,
+        });
+      }, FRAME_PROCESSING_WATCHDOG_MS);
 
       try {
+        setLastCapturePath(filePath);
+        const ocrInput = toMlKitImageUri(imageUri ?? filePath);
+        scLog('Frame received', { filePath, imageUri: ocrInput, appPackage });
+
+        const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
+        const cacheFresh = cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS;
+        const cachedPollPackage =
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          cacheFresh &&
+          !isLauncherPackage(lastAppPackageRef.current)
+            ? lastAppPackageRef.current
+            : null;
+
         const fg =
-          Platform.OS === 'android'
-            ? await withTimeout(
-                resolveForegroundAppWithRetry(3, 200),
-                4_000,
-                { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
-              )
-            : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
+          cachedPollPackage !== null
+            ? {
+                packageName: cachedPollPackage,
+                appLabel: cachedPollPackage,
+                source: 'usage_stats' as const,
+              }
+            : Platform.OS === 'android'
+              ? await withTimeout(
+                  resolveForegroundAppWithRetry(3, 200),
+                  FOREGROUND_LOOKUP_TIMEOUT_MS,
+                  { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+                )
+              : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
+
+        if (cachedPollPackage !== null) {
+          scLog('Foreground cache hit — skipped UsageStats lookup', {
+            package: cachedPollPackage,
+            cacheAgeMs,
+          });
+        }
 
         const fgPackage = isUsableForegroundPackage(fg.packageName) ? fg.packageName : null;
         const eventPackage = isUsableForegroundPackage(appPackage) ? appPackage : null;
-        const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
-        const cacheFresh = cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS;
         const missionGraceActive =
           missionEndedAtRef.current > 0 &&
           Date.now() - missionEndedAtRef.current < MISSION_FOREGROUND_GRACE_MS;
@@ -368,12 +416,27 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
               : null;
 
         let cachedPackage: string | null = null;
-        if (isUsableForegroundPackage(lastAppPackageRef.current) && cacheFresh) {
+        if (
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          cacheFresh &&
+          !isLauncherPackage(lastAppPackageRef.current)
+        ) {
           cachedPackage = lastAppPackageRef.current;
         } else if (gracePackage && !fgPackage) {
           cachedPackage = gracePackage;
           scLog('Foreground cache reused — post-mission grace', {
             package: gracePackage,
+            cacheAgeMs,
+          });
+        } else if (
+          !fgPackage &&
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          !cacheFresh &&
+          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS
+        ) {
+          cachedPackage = lastAppPackageRef.current;
+          scLog('Foreground cache reused — extended attribution window', {
+            package: cachedPackage,
             cacheAgeMs,
           });
         } else if (
@@ -385,6 +448,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
             cached: lastAppPackageRef.current,
             cacheAgeMs,
           });
+        }
+
+        if (!isActive()) {
+          scWarn('Stale frame aborted — before vision', { filePath });
+          return { success: false, skippedReason: 'stale' };
         }
 
         const resolvedPackage = fgPackage ?? eventPackage ?? cachedPackage ?? 'unknown';
@@ -423,6 +491,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           VISION_PIPELINE_TIMEOUT_MS,
           null,
         );
+
+        if (!isActive()) {
+          scWarn('Stale frame aborted — after foreground', { filePath });
+          return { success: false, skippedReason: 'stale' };
+        }
 
         if (!visionResult) {
           scWarn('Vision pipeline timed out — frame skipped', {
@@ -518,9 +591,30 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           keywordResult.category,
         );
 
-        if (shouldNeutralizeLauncherWidgetCapture(resolvedPackage, cleanedForKeywords)) {
+        let attributionPackage = resolvedPackage;
+        let attributionLabel = resolvedLabel;
+        const inferred = inferAppPackageFromOcr(cleanedForKeywords);
+        if (
+          inferred &&
+          shouldOverridePackageWithOcrInference(
+            resolvedPackage,
+            inferred,
+            cleanedForKeywords,
+          )
+        ) {
+          attributionPackage = inferred;
+          attributionLabel = inferred;
+          lastAppPackageRef.current = inferred;
+          lastAppPackageUpdatedAtRef.current = Date.now();
+          scLog('Package inferred from OCR (foreground misreport)', {
+            usageStatsPackage: resolvedPackage,
+            inferredPackage: inferred,
+          });
+        }
+
+        if (shouldNeutralizeLauncherWidgetCapture(attributionPackage, cleanedForKeywords)) {
           scLog('Launcher recents/widget OCR — risk neutralized (open Chrome for enforcement)', {
-            package: resolvedPackage,
+            package: attributionPackage,
             preview: preview.slice(0, 80),
           });
           finalRiskFlag = false;
@@ -553,8 +647,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         const payload: ScreenEventPayload = {
           timestamp: new Date().toISOString(),
-          appPackage: resolvedPackage,
-          appLabel: resolvedLabel,
+          appPackage: attributionPackage,
+          appLabel: attributionLabel,
           extractedTextPreview: preview,
           riskFlag: finalRiskFlag,
           riskScore: combinedRiskScore,
@@ -575,14 +669,33 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           category: finalCategory,
         });
 
-        const screenEventResponse = await postScreenEvent(payload);
+        if (!isActive()) {
+          scWarn('Stale frame aborted — before API post', { filePath });
+          return { success: false, skippedReason: 'stale' };
+        }
+
+        const screenEventResponse = await withTimeout(
+          postScreenEvent(payload),
+          API_POST_TIMEOUT_MS,
+          null,
+        );
+        if (!screenEventResponse) {
+          scWarn('POST /api/screen-events timed out', { timeoutMs: API_POST_TIMEOUT_MS });
+          return { success: false, skippedReason: 'api_timeout' };
+        }
         scLog('POST /api/screen-events OK');
+
+        if (!isActive()) {
+          scWarn('Stale frame aborted — mission presentation skipped', { filePath });
+          return { success: true, skippedReason: 'stale' };
+        }
+
         if (screenEventResponse.newMission?.id) {
           const nm = screenEventResponse.newMission;
-          if (isLauncherPackage(resolvedPackage)) {
+          if (isLauncherPackage(attributionPackage)) {
             scLog('Mission presentation skipped — home/launcher foreground', {
               missionId: nm.id,
-              package: resolvedPackage,
+              package: attributionPackage,
             });
           } else if (
             shouldPresentMissionFromCapture(nm.id, { reSurfaced: nm.reSurfaced })
@@ -630,10 +743,13 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         setLastError(message);
         return { success: false, error: message };
       } finally {
-        if (!__DEV__) {
-          await getScreenCaptureModule().deleteFile(filePath).catch(() => undefined);
+        clearTimeout(processingWatchdog);
+        if (processingGenerationRef.current === generation) {
+          isProcessingRef.current = false;
         }
-        isProcessingRef.current = false;
+        if (!__DEV__) {
+          void getScreenCaptureModule().deleteFile(filePath).catch(() => undefined);
+        }
       }
     },
     [maxTextLength, updateRiskAndInterval],
@@ -679,27 +795,46 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   }, []);
 
   const refreshForegroundCache = useCallback(async (): Promise<void> => {
-    lastAppPackageRef.current = null;
-    const deadline = Date.now() + 2_000;
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    while (Date.now() < deadline) {
-      const fg = await resolveForegroundApp();
-      if (isUsableForegroundPackage(fg.packageName)) {
-        lastAppPackageRef.current = fg.packageName;
-        lastAppPackageUpdatedAtRef.current = Date.now();
-        setLastForegroundApp(fg.packageName);
-        scLog('Foreground cache refreshed', {
-          package: fg.packageName,
-          label: fg.appLabel,
-        });
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
+    if (
+      isUsableForegroundPackage(lastAppPackageRef.current) &&
+      cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS
+    ) {
+      scLog('Foreground cache still fresh — skip refresh', {
+        package: lastAppPackageRef.current,
+        cacheAgeMs,
+      });
+      return;
     }
 
-    scLog('Foreground cache refresh timed out — still on System UI or unknown');
+    const gracePackage = isUsableForegroundPackage(foregroundAtPauseRef.current)
+      ? foregroundAtPauseRef.current
+      : null;
+    if (gracePackage) {
+      lastAppPackageRef.current = gracePackage;
+      lastAppPackageUpdatedAtRef.current = Date.now();
+      setLastForegroundApp(gracePackage);
+      scLog('Foreground cache restored from pre-mission app', { package: gracePackage });
+      return;
+    }
+
+    const fg = await withTimeout(
+      resolveForegroundApp(),
+      FOREGROUND_LOOKUP_TIMEOUT_MS,
+      { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+    );
+    if (isUsableForegroundPackage(fg.packageName) && !isLauncherPackage(fg.packageName)) {
+      lastAppPackageRef.current = fg.packageName;
+      lastAppPackageUpdatedAtRef.current = Date.now();
+      setLastForegroundApp(fg.packageName);
+      scLog('Foreground cache refreshed', {
+        package: fg.packageName,
+        label: fg.appLabel,
+      });
+      return;
+    }
+
+    scLog('Foreground cache refresh — no usable app (keeping last known if any)');
   }, []);
 
   const startSmartCaptureTimers = useCallback(() => {
@@ -714,6 +849,15 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         }
 
         const previousPkg = lastAppPackageRef.current;
+        const socialCacheFresh =
+          previousPkg !== null &&
+          !isLauncherPackage(previousPkg) &&
+          Date.now() - lastAppPackageUpdatedAtRef.current <= FOREGROUND_CACHE_MAX_AGE_MS;
+
+        if (isLauncherPackage(pkg) && socialCacheFresh) {
+          return;
+        }
+
         const appChanged = previousPkg !== null && pkg !== previousPkg;
 
         if (appChanged) {
@@ -726,9 +870,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           scheduleFollowUpCapture(FOLLOW_UP_DELAY_MS);
         }
 
-        lastAppPackageRef.current = pkg;
-        lastAppPackageUpdatedAtRef.current = Date.now();
-        setLastForegroundApp(pkg);
+        if (!isLauncherPackage(pkg) || previousPkg === null) {
+          lastAppPackageRef.current = pkg;
+          lastAppPackageUpdatedAtRef.current = Date.now();
+          setLastForegroundApp(pkg);
+        }
 
         if (appChanged || previousPkg === null) {
           refreshIntervalForApp();
@@ -833,15 +979,14 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     if (isUsableForegroundPackage(lastAppPackageRef.current)) {
       foregroundAtPauseRef.current = lastAppPackageRef.current;
     }
-    clearAdaptiveTimers();
+    clearCaptureTimers();
     try {
       await getScreenCaptureModule().pauseCapture();
-      setIsPaused(true);
     } catch (err) {
       scError('pauseCapture failed', err);
       setLastError(err instanceof Error ? err.message : String(err));
     }
-  }, [isMonitoring, clearAdaptiveTimers]);
+  }, [isMonitoring, clearCaptureTimers]);
 
   const resumeCapture = useCallback(async () => {
     if (Platform.OS !== 'android' || !isMonitoringRef.current) {
@@ -851,7 +996,6 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     try {
       missionEndedAtRef.current = Date.now();
       await getScreenCaptureModule().resumeCapture();
-      setIsPaused(false);
       scLog('resumeCapture OK');
       void refreshForegroundCache();
     } catch (err) {

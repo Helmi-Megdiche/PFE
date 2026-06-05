@@ -106,6 +106,51 @@ export async function getActivePendingMission(
   return rows[0] ?? null;
 }
 
+/**
+ * During risk cooldown: return a mission the overlay can re-show — pending,
+ * failed (re-opened), or recently completed / awaiting parent approval.
+ */
+export async function getResurfaceableRiskyMission(
+  childId: string,
+  cooldownMinutes: number,
+): Promise<ActiveMissionRow | null> {
+  const pending = await getActivePendingMission(childId);
+  if (pending) {
+    return pending;
+  }
+
+  const { rows } = await query<ActiveMissionRow>(
+    `SELECT id, title, description, points, status, metadata
+     FROM missions
+     WHERE child_id = $1
+       AND trigger_reason = 'risky_content'
+       AND status IN ('failed', 'pending_approval', 'completed')
+       AND created_at > NOW() - ($2::text || ' minutes')::interval
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [childId, String(cooldownMinutes)],
+  );
+  const recent = rows[0];
+  if (!recent) {
+    return null;
+  }
+
+  if (recent.status === 'failed') {
+    await query(
+      `UPDATE missions
+       SET status = 'pending',
+           escaped_at = NULL,
+           expires_at = NOW() + INTERVAL '24 hours'
+       WHERE id = $1`,
+      [recent.id],
+    );
+    return { ...recent, status: 'pending' };
+  }
+
+  // completed / pending_approval: overlay-only resurface (status unchanged)
+  return recent;
+}
+
 /** Compute the resurface-bumped point value: +5 per resurface, capped at +50% of base. */
 export function computeResurfacedPoints(
   currentPoints: number,

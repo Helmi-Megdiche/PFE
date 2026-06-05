@@ -32,6 +32,12 @@ export function shouldPresentMissionFromCapture(
   if (options?.reSurfaced && monitoringStartedAt > 0 && now - monitoringStartedAt < STARTUP_GRACE_MS) {
     return false;
   }
+  // Re-surfaced during cooldown = child still on risky content — always re-block.
+  if (options?.reSurfaced) {
+    lastPresentedMissionId = missionId;
+    lastPresentedAt = now;
+    return true;
+  }
   if (
     lastPresentedMissionId === missionId &&
     now - lastPresentedAt < PRESENT_DEBOUNCE_MS
