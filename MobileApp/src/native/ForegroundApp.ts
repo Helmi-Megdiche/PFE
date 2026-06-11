@@ -1,5 +1,9 @@
 import { Linking, NativeModules, Platform } from 'react-native';
 import { scLog, scWarn } from '../utils/screenCaptureLogger';
+import { withTimeout } from '../utils/withTimeout';
+
+/** Native UsageStats lookup must not block the RN bridge indefinitely. */
+const FOREGROUND_NATIVE_TIMEOUT_MS = 2_500;
 
 export interface ForegroundAppInfo {
   packageName: string;
@@ -99,7 +103,11 @@ export async function resolveForegroundApp(): Promise<ForegroundAppInfo> {
     return foregroundLookupInFlight;
   }
 
-  foregroundLookupInFlight = resolveForegroundAppOnce().finally(() => {
+  foregroundLookupInFlight = withTimeout(
+    resolveForegroundAppOnce(),
+    FOREGROUND_NATIVE_TIMEOUT_MS,
+    UNKNOWN_FOREGROUND,
+  ).finally(() => {
     foregroundLookupInFlight = null;
   });
 

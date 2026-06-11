@@ -406,6 +406,14 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
             ? lastAppPackageRef.current
             : null;
 
+        const graceCachedPackage =
+          cachedPollPackage === null &&
+          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          !isLauncherPackage(lastAppPackageRef.current) &&
+          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS
+            ? lastAppPackageRef.current
+            : null;
+
         const fg =
           cachedPollPackage !== null
             ? {
@@ -413,17 +421,28 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
                 appLabel: cachedPollPackage,
                 source: 'usage_stats' as const,
               }
-            : Platform.OS === 'android'
-              ? await withTimeout(
-                  resolveForegroundAppWithRetry(3, 200),
-                  FOREGROUND_LOOKUP_TIMEOUT_MS,
-                  { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
-                )
-              : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
+            : graceCachedPackage !== null
+              ? {
+                  packageName: graceCachedPackage,
+                  appLabel: graceCachedPackage,
+                  source: 'cached_poll' as const,
+                }
+              : Platform.OS === 'android'
+                ? await withTimeout(
+                    resolveForegroundAppWithRetry(3, 200),
+                    FOREGROUND_LOOKUP_TIMEOUT_MS,
+                    { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+                  )
+                : { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const };
 
         if (cachedPollPackage !== null) {
           scLog('Foreground cache hit — skipped UsageStats lookup', {
             package: cachedPollPackage,
+            cacheAgeMs,
+          });
+        } else if (graceCachedPackage !== null) {
+          scLog('Foreground grace cache hit — skipped UsageStats lookup', {
+            package: graceCachedPackage,
             cacheAgeMs,
           });
         }
@@ -874,7 +893,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
     appPollTimerRef.current = setInterval(() => {
       void (async () => {
-        const fg = await resolveForegroundApp();
+        const fg = await withTimeout(
+          resolveForegroundApp(),
+          FOREGROUND_LOOKUP_TIMEOUT_MS,
+          { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+        );
         const pkg = fg.packageName;
         if (!isUsableForegroundPackage(pkg)) {
           return;
