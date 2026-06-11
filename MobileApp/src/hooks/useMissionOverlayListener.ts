@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef } from 'react';
 import { Alert, AppState, Platform, ToastAndroid } from 'react-native';
 import {
@@ -37,6 +38,14 @@ function quizRetryMetadata(metadata: Record<string, unknown>): Record<string, un
   return rest;
 }
 
+const RESURFACED_BLOCK_PREFIX = 'resurfaced_block_';
+const RESURFACED_BLOCK_MS = 2 * 60 * 1000;
+
+async function blockResurfacedMission(missionId: string): Promise<void> {
+  const blockUntil = Date.now() + RESURFACED_BLOCK_MS;
+  await AsyncStorage.setItem(`${RESURFACED_BLOCK_PREFIX}${missionId}`, String(blockUntil));
+}
+
 function showBriefMessage(message: string): void {
   if (Platform.OS === 'android') {
     ToastAndroid.show(message, ToastAndroid.LONG);
@@ -67,6 +76,10 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
       metadata,
     });
     return;
+  }
+
+  if (event.action === 'abandon') {
+    await blockResurfacedMission(event.missionId);
   }
 
   try {

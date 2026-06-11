@@ -73,7 +73,7 @@ const DEFAULT_MAX_TEXT = 500;
 const SYSTEM_UI_PACKAGE = 'com.android.systemui';
 
 /** Max age for cached foreground package when live lookup fails at capture time. */
-const FOREGROUND_CACHE_MAX_AGE_MS = 120_000;
+const FOREGROUND_CACHE_MAX_AGE_MS = 30_000;
 /** After a mission ends, reuse pre-pause Chrome/browser package if UsageStats is briefly null. */
 const MISSION_FOREGROUND_GRACE_MS = 120_000;
 /** OCR + TFLite must finish within this window (Arabic Tesseract timeout is 25s). */
@@ -133,6 +133,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const [avgRiskScore, setAvgRiskScore] = useState<number | null>(null);
 
   const isProcessingRef = useRef(false);
+  const processingStartTimeRef = useRef(0);
   const processingGenerationRef = useRef(0);
   const isStartingRef = useRef(false);
   const isMonitoringRef = useRef(false);
@@ -352,6 +353,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
       const generation = ++processingGenerationRef.current;
       isProcessingRef.current = true;
+      processingStartTimeRef.current = Date.now();
       const { filePath, imageUri, appPackage } = event;
       const isActive = () => processingGenerationRef.current === generation;
 
@@ -361,11 +363,34 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         }
         processingGenerationRef.current += 1;
         isProcessingRef.current = false;
+        processingStartTimeRef.current = 0;
         scWarn('Processing watchdog — stale frame aborted', {
           filePath,
           timeoutMs: FRAME_PROCESSING_WATCHDOG_MS,
         });
       }, FRAME_PROCESSING_WATCHDOG_MS);
+
+      let processingHeartbeat: ReturnType<typeof setInterval> | undefined;
+      processingHeartbeat = setInterval(() => {
+        if (!isProcessingRef.current || processingStartTimeRef.current === 0) {
+          if (processingHeartbeat !== undefined) {
+            clearInterval(processingHeartbeat);
+            processingHeartbeat = undefined;
+          }
+          return;
+        }
+        const elapsed = Date.now() - processingStartTimeRef.current;
+        if (elapsed > FRAME_PROCESSING_WATCHDOG_MS) {
+          processingGenerationRef.current += 1;
+          isProcessingRef.current = false;
+          processingStartTimeRef.current = 0;
+          scWarn('Processing heartbeat — forced release after hung frame', { elapsed });
+          if (processingHeartbeat !== undefined) {
+            clearInterval(processingHeartbeat);
+            processingHeartbeat = undefined;
+          }
+        }
+      }, 5_000);
 
       try {
         setLastCapturePath(filePath);
@@ -705,14 +730,17 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
               title: nm.title,
               reSurfaced: nm.reSurfaced ?? false,
             });
-            void presentMissionFromCapture({
-              missionId: nm.id,
-              title: nm.title,
-              description: nm.description,
-              points: nm.points,
-              missionType: String(nm.type ?? nm.metadata?.type ?? 'real_world'),
-              metadata: (nm.metadata ?? {}) as Record<string, unknown>,
-            });
+            void presentMissionFromCapture(
+              {
+                missionId: nm.id,
+                title: nm.title,
+                description: nm.description,
+                points: nm.points,
+                missionType: String(nm.type ?? nm.metadata?.type ?? 'real_world'),
+                metadata: (nm.metadata ?? {}) as Record<string, unknown>,
+              },
+              { reSurfaced: nm.reSurfaced },
+            );
           } else {
             scLog('Mission presentation skipped — debounce or startup grace', {
               missionId: nm.id,
@@ -744,6 +772,10 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         return { success: false, error: message };
       } finally {
         clearTimeout(processingWatchdog);
+        if (processingHeartbeat !== undefined) {
+          clearInterval(processingHeartbeat);
+        }
+        processingStartTimeRef.current = 0;
         if (processingGenerationRef.current === generation) {
           isProcessingRef.current = false;
         }

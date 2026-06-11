@@ -132,7 +132,7 @@ export function MissionScreen({ navigation, route }: Props): React.JSX.Element {
               {
                 text: 'OK',
                 onPress: () => {
-                  endMissionCaptureSession();
+                  forceEndMissionCaptureSession();
                   navigation.goBack();
                 },
               },
