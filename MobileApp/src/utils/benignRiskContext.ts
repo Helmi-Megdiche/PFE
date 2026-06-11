@@ -1,3 +1,8 @@
+import {
+  hasExplicitGoogleSearchIntent,
+  isFilteredSearchResultsContext,
+} from './riskySearchContext';
+
 /**
  * Suppress keyword false positives when "nsfw" / "adult" appear in parental-control
  * settings, design-tool filters, or the project's own parent dashboard OCR.
@@ -28,12 +33,40 @@ function isParentalControlNsfwContext(lower: string): boolean {
 
 /** Our blocking mission overlay / in-app MissionScreen (avoid self-OCR loops). */
 function isMissionBlockingOverlayContext(lower: string): boolean {
-  return (
+  if (
     /\bactive\s+mission\b/i.test(lower) &&
     /\b(quiz|minigame|cognitive|safety\s+quiz|answer\s+\d+\s+question|points?\s+·|points?\s+pts)\b/i.test(
       lower,
     )
+  ) {
+    return true;
+  }
+  // Real-world kindness overlay bleeds into Chrome captures (Spread Kindness + points).
+  if (
+    /\bspread\s+kindness\b/i.test(lower) &&
+    /\b(real[_\s-]?wo|member\s+\d+\s+points?|kind\s+message|write\s+a\s+kind)\b/i.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+  // Digital detox / screen-free break enforcement overlay.
+  return (
+    /\b(screen[-\s]?free\s+break|digital\s+detox)\b/i.test(lower) &&
+    /\b(take\s+a\s+\d+|minute\s+break|screens?|overlay)\b/i.test(lower)
   );
+}
+
+/** Messenger home inbox — "Q or search", stories, chats; not an explicit search. */
+function isMessengerInboxContext(lower: string): boolean {
+  if (!/\bmessenger\b/i.test(lower)) {
+    return false;
+  }
+  const inboxUi =
+    /\b(q\s+or\s+search|post\s+a\s+note|create\s+story)\b/i.test(lower) ||
+    /\bchats?\b/i.test(lower);
+  const explicitAdultUrl = /\b(pornhub|xvideos|xnxx|brazzers|onlyfans)\b/i.test(lower);
+  return inboxUi && !explicitAdultUrl;
 }
 
 /** In-app mission / game UI OCR (Tic-Tac-Toe, N-back, rewards tab, etc.). */
@@ -51,6 +84,9 @@ export function isMissionGameUiContext(text: string): boolean {
 export function shouldSkipScreenEventReporting(text: string): boolean {
   const lower = text.toLowerCase();
   if (isMissionGameUiContext(text)) {
+    return true;
+  }
+  if (isMissionBlockingOverlayContext(lower)) {
     return true;
   }
   if (isOwnScreenMonitorContext(lower)) {
@@ -110,12 +146,29 @@ export function filterBenignKeywordMatches(
     return [];
   }
 
-  const parentalUi = isParentalControlNsfwContext(lower);
+  // Mode IA / Tous Images SERP: stale URL params (q=gore) are not active searches.
+  if (
+    isFilteredSearchResultsContext(lower) &&
+    !hasExplicitGoogleSearchIntent(text)
+  ) {
+    return [];
+  }
+
+  if (isMessengerInboxContext(lower)) {
+    return [];
+  }
+
+  const explicitSearch = hasExplicitGoogleSearchIntent(text);
+  const parentalUi = !explicitSearch && isParentalControlNsfwContext(lower);
   const ownDashboard = isOwnGamificationDashboardContext(lower);
   const missionOverlay = isMissionBlockingOverlayContext(lower);
   const homeFeed = isHomeFeedLauncherContext(lower);
 
-  if (!parentalUi && !ownDashboard && !missionOverlay && !homeFeed) {
+  if (missionOverlay) {
+    return [];
+  }
+
+  if (!parentalUi && !ownDashboard && !homeFeed) {
     return matchedKeywords;
   }
 
@@ -127,7 +180,7 @@ export function filterBenignKeywordMatches(
     if (homeFeed && (k === 'porn' || k === 'sex' || k === 'blowjob')) {
       return false;
     }
-    if ((ownDashboard || missionOverlay) && ADULT_KEYWORD_SET.has(k)) {
+    if (ownDashboard && ADULT_KEYWORD_SET.has(k)) {
       return false;
     }
     return true;

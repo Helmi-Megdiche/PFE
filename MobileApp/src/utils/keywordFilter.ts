@@ -153,9 +153,15 @@ function scanText(text: string): KeywordFilterResult {
 
   const normalized = text.toLowerCase();
 
-  const violentHits = VIOLENT_TEXT_KEYWORDS.filter((kw) =>
-    containsArabicScript(kw) ? text.includes(kw) : normalized.includes(kw.toLowerCase()),
-  );
+  const violentHits = VIOLENT_TEXT_KEYWORDS.filter((kw) => {
+    if (containsArabicScript(kw)) {
+      return text.includes(kw);
+    }
+    if (kw.length <= 5) {
+      return new RegExp(`\\b${escapeRegex(kw)}\\b`, 'i').test(text);
+    }
+    return normalized.includes(kw.toLowerCase());
+  });
   if (violentHits.length > 0) {
     return { riskFlag: true, category: 'violent', matchedKeywords: violentHits };
   }
@@ -171,9 +177,15 @@ function scanText(text: string): KeywordFilterResult {
   let category: RiskCategory = 'neutral';
 
   for (const cat of RISK_CATEGORIES) {
-    const hits = RISK_KEYWORDS[cat].filter((kw) =>
-      containsArabicScript(kw) ? text.includes(kw) : normalized.includes(kw.toLowerCase()),
-    );
+    const hits = RISK_KEYWORDS[cat].filter((kw) => {
+      if (containsArabicScript(kw)) {
+        return text.includes(kw);
+      }
+      if (cat === 'violent' && kw.length <= 5) {
+        return new RegExp(`\\b${escapeRegex(kw)}\\b`, 'i').test(text);
+      }
+      return normalized.includes(kw.toLowerCase());
+    });
     if (hits.length > 0) {
       matchedKeywords.push(...hits);
       return { riskFlag: true, category: cat, matchedKeywords };

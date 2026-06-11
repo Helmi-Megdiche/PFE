@@ -59,6 +59,31 @@ describe('benignRiskContext', () => {
     expect(result.category).toBe('neutral');
   });
 
+  it('neutralizes violent keywords on Spread Kindness real-world overlay OCR', () => {
+    const text =
+      'Mode lA Tous Images Di Travel Town Spread Kindness member 38 points real_wo';
+    expect(shouldSkipScreenEventReporting(text)).toBe(true);
+    const result = keywordFilter(
+      `${text} search?q=gore stale url params`,
+    );
+    expect(result.riskFlag).toBe(false);
+    expect(result.category).toBe('neutral');
+  });
+
+  it('neutralizes Messenger inbox home OCR (no explicit adult content)', () => {
+    const text =
+      '. messenger Q or search Post a note..., Messenger Create story Chats alJaI Souad';
+    const result = keywordFilter(`${text} nsfw`);
+    expect(result.riskFlag).toBe(false);
+    expect(result.category).toBe('neutral');
+  });
+
+  it('skips screen event reporting when digital detox overlay bleeds into capture', () => {
+    const text =
+      'google.com/sea Q nsfw Screen-Free Break Take a 30-minute break from screens overlay';
+    expect(shouldSkipScreenEventReporting(text)).toBe(true);
+  });
+
   it('keeps nsfw when not parental-control context', () => {
     const text = 'watch free nsfw videos now';
     expect(filterBenignKeywordMatches(text, ['nsfw'])).toEqual(['nsfw']);

@@ -124,7 +124,7 @@ export async function getResurfaceableRiskyMission(
      FROM missions
      WHERE child_id = $1
        AND trigger_reason = 'risky_content'
-       AND status IN ('failed', 'pending_approval', 'completed')
+       AND status IN ('failed', 'completed')
        AND created_at > NOW() - ($2::text || ' minutes')::interval
      ORDER BY created_at DESC
      LIMIT 1`,
@@ -132,6 +132,14 @@ export async function getResurfaceableRiskyMission(
   );
   const recent = rows[0];
   if (!recent) {
+    return null;
+  }
+
+  const missionType =
+    typeof recent.metadata === 'object' && recent.metadata !== null
+      ? String((recent.metadata as Record<string, unknown>).type ?? '')
+      : '';
+  if (recent.status === 'completed' && missionType === 'real_world') {
     return null;
   }
 
@@ -147,7 +155,7 @@ export async function getResurfaceableRiskyMission(
     return { ...recent, status: 'pending' };
   }
 
-  // completed / pending_approval: overlay-only resurface (status unchanged)
+  // completed quiz/cognitive: overlay-only resurface (status unchanged)
   return recent;
 }
 

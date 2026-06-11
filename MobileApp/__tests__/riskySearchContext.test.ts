@@ -1,5 +1,7 @@
 import {
   applyRiskySearchBoost,
+  hasExplicitAdultGoogleSearchIntent,
+  hasExplicitGoogleSearchIntent,
   hasExplicitSearchBoxQuery,
   isFilteredSearchResultsContext,
   isRiskyWebSearchContext,
@@ -66,6 +68,32 @@ describe('riskySearchContext', () => {
     const text = 'google.com/sear + Q porn Mode IA Flouter censored results';
     expect(hasExplicitSearchBoxQuery(text)).toBe(true);
     expect(shouldCapFilteredSearchResults(text, 4)).toBe(false);
+  });
+
+  it('does not flag stale q=gore on Mode lA google.com/sea OCR without search-box query', () => {
+    const text =
+      'Di 25 google.com/sea Mode lA Tous Images Spread Kindness memb search?q=gore+images padding';
+    expect(isFilteredSearchResultsContext(text.toLowerCase())).toBe(true);
+    expect(hasExplicitSearchBoxQuery(text)).toBe(false);
+    expect(shouldCapFilteredSearchResults(text, 2)).toBe(true);
+    const result = keywordFilter(text);
+    expect(result.riskFlag).toBe(false);
+    expect(result.category).toBe('neutral');
+  });
+
+  it('detects omnibar OCR "NSFW eo google.com/sea" as explicit search intent', () => {
+    const text =
+      "NSFW eo google.com/sea + Dessiner de l'art nsfw d... BASIC STANDARD EXCLUSIVE";
+    expect(hasExplicitAdultGoogleSearchIntent(text)).toBe(true);
+    const result = keywordFilter(text);
+    expect(result.riskFlag).toBe(true);
+    expect(result.category).toBe('adult');
+  });
+
+  it('detects "google.com/sea Q nsfw" as explicit search intent', () => {
+    const text = 'De Fiv . 26 google.com/sea Q nsfw Google results page';
+    expect(hasExplicitAdultGoogleSearchIntent(text)).toBe(true);
+    expect(keywordFilter(text).category).toBe('adult');
   });
 
   it('applyRiskySearchBoost forces adult when search context matches', () => {

@@ -4,6 +4,8 @@
  */
 
 const PRESENT_DEBOUNCE_MS = 90_000;
+/** Minimum gap between re-surfaced overlays for the same mission (child still on risky app). */
+const RESURFACE_DEBOUNCE_MS = 60_000;
 const STARTUP_GRACE_MS = 8_000;
 
 let monitoringStartedAt = 0;
@@ -32,8 +34,14 @@ export function shouldPresentMissionFromCapture(
   if (options?.reSurfaced && monitoringStartedAt > 0 && now - monitoringStartedAt < STARTUP_GRACE_MS) {
     return false;
   }
-  // Re-surfaced during cooldown = child still on risky content — always re-block.
+  // Re-surfaced during cooldown — re-block, but not every capture tick.
   if (options?.reSurfaced) {
+    if (
+      lastPresentedMissionId === missionId &&
+      now - lastPresentedAt < RESURFACE_DEBOUNCE_MS
+    ) {
+      return false;
+    }
     lastPresentedMissionId = missionId;
     lastPresentedAt = now;
     return true;

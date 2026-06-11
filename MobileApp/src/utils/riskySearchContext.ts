@@ -1,8 +1,9 @@
 import { findAdultSiteMatches, isAdultSiteUrlContext } from './adultSiteContext';
 import type { KeywordFilterResult } from './keywordFilter';
 
+/** `google.com/sea` is a common OCR truncation of `google.com/search`. */
 const SEARCH_HOST_RE =
-  /\b(google\.com\/search|google\.com\/sear|bing\.com\/search|duckduckgo\.com)\b/i;
+  /\b(google\.com\/search|google\.com\/sear(?:ch)?|google\.com\/sea\b|bing\.com\/search|duckduckgo\.com)\b/i;
 
 const ADULT_EXPLICIT_QUERY_RE = /\b(nsfw|porn|xxx|nude|hentai|sex\s*tape)\b/i;
 
@@ -21,14 +22,44 @@ export function hasExplicitSearchBoxQuery(text: string): boolean {
   return ADULT_SEARCH_BOX_QUERY_RE.test(lower) || VIOLENT_SEARCH_BOX_QUERY_RE.test(lower);
 }
 
+/** Adult omnibar OCR on Google — not Fiverr body labels or violent "Q gore" searches. */
+export function hasExplicitAdultGoogleSearchIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (ADULT_SEARCH_BOX_QUERY_RE.test(lower)) {
+    return true;
+  }
+  if (!SEARCH_HOST_RE.test(lower)) {
+    return false;
+  }
+  if (/\bnsfw\s+eo\b/i.test(lower)) {
+    return true;
+  }
+  if (/\bgoogle\.com\/sea\s*\+\s*(?:q\s+)?(?:nsfw|porn|xxx|nude|hentai)\b/i.test(lower)) {
+    return true;
+  }
+  if (
+    /\bgoogle\.com\/sea\b[\s\S]{0,50}\bq\s+(?:nsfw|porn|xxx|nude|hentai)\b/i.test(lower) ||
+    /\bq\s+(?:nsfw|porn|xxx|nude|hentai)\b[\s\S]{0,50}\bgoogle\.com\/sea\b/i.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Any explicit search-box or adult omnibar query (adult + violent). */
+export function hasExplicitGoogleSearchIntent(text: string): boolean {
+  return hasExplicitSearchBoxQuery(text) || hasExplicitAdultGoogleSearchIntent(text);
+}
+
 /** SafeSearch / censored filter UI on a search results page — not an active explicit search. */
 export function isFilteredSearchResultsContext(lower: string): boolean {
   if (!SEARCH_HOST_RE.test(lower)) {
     return false;
   }
-  const hasFilterUi = /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode|flouter|mode\s*ia|flou|recherche\s*sécurisée|recherche\s*securisee)\b/i.test(
-    lower,
-  );
+  const hasFilterUi =
+    /\b(censored|safe\s*search|filtered|family\s*filter|restricted\s*mode|flouter|mode\s*ia|mode\s*l[aàá1i]|tous\s*images|flou|recherche\s*sécurisée|recherche\s*securisee)\b/i.test(
+      lower,
+    );
   if (!hasFilterUi) {
     return false;
   }
@@ -44,7 +75,7 @@ export function shouldCapFilteredSearchResults(text: string, tfliteScore: number
   return (
     isFilteredSearchResultsContext(lower) &&
     tfliteScore < 30 &&
-    !hasExplicitSearchBoxQuery(lower)
+    !hasExplicitGoogleSearchIntent(lower)
   );
 }
 
@@ -56,7 +87,7 @@ function isSearchHostContext(text: string): boolean {
 export function isRiskyAdultWebSearchContext(text: string): boolean {
   const lower = text.toLowerCase();
   if (isFilteredSearchResultsContext(lower)) {
-    return isSearchHostContext(text) && ADULT_SEARCH_BOX_QUERY_RE.test(lower);
+    return isSearchHostContext(text) && hasExplicitAdultGoogleSearchIntent(text);
   }
   return isSearchHostContext(text) && ADULT_EXPLICIT_QUERY_RE.test(lower);
 }

@@ -1,13 +1,29 @@
+import { APP_OWN_PACKAGE } from '../src/utils/appSwitchCapture';
 import {
   inferAppPackageFromOcr,
   INFERRED_PACKAGES,
   isFullBrowserSearchContext,
   isMessengerChatContext,
+  isMessengerInboxContext,
   shouldOverridePackageWithOcrInference,
 } from '../src/utils/inferAppPackageFromOcr';
 import { shouldNeutralizeLauncherWidgetCapture } from '../src/utils/launcherCaptureContext';
 
 describe('inferAppPackageFromOcr', () => {
+  it('detects Messenger inbox from home screen OCR', () => {
+    const text =
+      '. messenger Q or search Post a note..., Messenger Create story Chats alJaI Souad';
+    expect(isMessengerInboxContext(text)).toBe(true);
+    expect(inferAppPackageFromOcr(text)).toBe(INFERRED_PACKAGES.messenger);
+    expect(
+      shouldOverridePackageWithOcrInference(
+        APP_OWN_PACKAGE,
+        INFERRED_PACKAGES.messenger,
+        text,
+      ),
+    ).toBe(true);
+  });
+
   it('detects Messenger chat from MIUI misreported capture', () => {
     const text =
       'rayen Active 1 hour ago W fateh kolou me ysakerlich | 25 ngataalou sormou Bousli';

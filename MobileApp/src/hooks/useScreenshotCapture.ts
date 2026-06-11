@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import getScreenCaptureModule, {
   screenCaptureEmitter,
   SCREEN_CAPTURE_EVENTS,
@@ -27,6 +27,11 @@ import {
   pushRiskScore,
   RISK_INTERVAL_LOW_MS,
 } from '../utils/adaptiveCapture';
+import {
+  APP_OWN_PACKAGE,
+  resolveEffectiveForegroundForSwitch,
+  shouldCaptureAfterLauncherReturn,
+} from '../utils/appSwitchCapture';
 import { getAppCategory, isLauncherPackage, type AppCategory } from '../utils/appCapturePolicy';
 import {
   inferAppPackageFromOcr,
@@ -149,6 +154,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastResetTimeRef = useRef<number>(0);
+  const pendingAppSwitchCaptureRef = useRef(false);
+  const visitedLauncherRef = useRef(false);
 
   useEffect(() => {
     isMonitoringRef.current = isMonitoring;
@@ -196,7 +203,12 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
   }, [clearCaptureTimers]);
 
   const tryCaptureNow = useCallback(async (reason: string): Promise<void> => {
-    if (!isMonitoringRef.current || isProcessingRef.current) {
+    if (!isMonitoringRef.current || isMissionCapturePaused()) {
+      return;
+    }
+    if (isProcessingRef.current) {
+      pendingAppSwitchCaptureRef.current = true;
+      scLog('Capture deferred — OCR in progress', { reason });
       return;
     }
     const now = Date.now();
@@ -339,6 +351,14 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
     [tryCaptureNow],
   );
 
+  const triggerAppSwitchCapture = useCallback(
+    async (reason: string): Promise<void> => {
+      await tryCaptureNow(reason);
+      scheduleFollowUpCapture(FOLLOW_UP_DELAY_MS);
+    },
+    [tryCaptureNow, scheduleFollowUpCapture],
+  );
+
   const processCapturedFrame = useCallback(
     async (event: ScreenCapturedEvent): Promise<CaptureCycleResult> => {
       if (isMissionCapturePaused()) {
@@ -399,19 +419,24 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
         const cacheAgeMs = Date.now() - lastAppPackageUpdatedAtRef.current;
         const cacheFresh = cacheAgeMs <= FOREGROUND_CACHE_MAX_AGE_MS;
-        const cachedPollPackage =
+        const ownAppInBackground = AppState.currentState !== 'active';
+        const cacheablePackage =
           isUsableForegroundPackage(lastAppPackageRef.current) &&
-          cacheFresh &&
+          lastAppPackageRef.current !== APP_OWN_PACKAGE &&
           !isLauncherPackage(lastAppPackageRef.current)
             ? lastAppPackageRef.current
+            : null;
+        const cachedPollPackage =
+          cacheablePackage !== null && cacheFresh && !ownAppInBackground
+            ? cacheablePackage
             : null;
 
         const graceCachedPackage =
           cachedPollPackage === null &&
-          isUsableForegroundPackage(lastAppPackageRef.current) &&
-          !isLauncherPackage(lastAppPackageRef.current) &&
-          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS
-            ? lastAppPackageRef.current
+          cacheablePackage !== null &&
+          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS &&
+          !ownAppInBackground
+            ? cacheablePackage
             : null;
 
         const fg =
@@ -460,12 +485,8 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
               : null;
 
         let cachedPackage: string | null = null;
-        if (
-          isUsableForegroundPackage(lastAppPackageRef.current) &&
-          cacheFresh &&
-          !isLauncherPackage(lastAppPackageRef.current)
-        ) {
-          cachedPackage = lastAppPackageRef.current;
+        if (cacheablePackage !== null && cacheFresh && !ownAppInBackground) {
+          cachedPackage = cacheablePackage;
         } else if (gracePackage && !fgPackage) {
           cachedPackage = gracePackage;
           scLog('Foreground cache reused — post-mission grace', {
@@ -474,11 +495,12 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           });
         } else if (
           !fgPackage &&
-          isUsableForegroundPackage(lastAppPackageRef.current) &&
+          cacheablePackage !== null &&
           !cacheFresh &&
-          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS
+          cacheAgeMs <= MISSION_FOREGROUND_GRACE_MS &&
+          !ownAppInBackground
         ) {
-          cachedPackage = lastAppPackageRef.current;
+          cachedPackage = cacheablePackage;
           scLog('Foreground cache reused — extended attribution window', {
             package: cachedPackage,
             cacheAgeMs,
@@ -798,12 +820,16 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
         if (processingGenerationRef.current === generation) {
           isProcessingRef.current = false;
         }
+        if (pendingAppSwitchCaptureRef.current && isMonitoringRef.current) {
+          pendingAppSwitchCaptureRef.current = false;
+          void triggerAppSwitchCapture('app_switch_deferred');
+        }
         if (!__DEV__) {
           void getScreenCaptureModule().deleteFile(filePath).catch(() => undefined);
         }
       }
     },
-    [maxTextLength, updateRiskAndInterval],
+    [maxTextLength, triggerAppSwitchCapture, updateRiskAndInterval],
   );
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
@@ -898,40 +924,66 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
           FOREGROUND_LOOKUP_TIMEOUT_MS,
           { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
         );
-        const pkg = fg.packageName;
-        if (!isUsableForegroundPackage(pkg)) {
+        const pkg = resolveEffectiveForegroundForSwitch(
+          AppState.currentState,
+          fg.packageName,
+        );
+        if (!pkg) {
           return;
         }
 
         const previousPkg = lastAppPackageRef.current;
         const socialCacheFresh =
           previousPkg !== null &&
+          previousPkg !== APP_OWN_PACKAGE &&
           !isLauncherPackage(previousPkg) &&
           Date.now() - lastAppPackageUpdatedAtRef.current <= FOREGROUND_CACHE_MAX_AGE_MS;
 
-        if (isLauncherPackage(pkg) && socialCacheFresh) {
+        if (
+          AppState.currentState !== 'active' &&
+          fg.packageName === 'unknown' &&
+          socialCacheFresh
+        ) {
+          visitedLauncherRef.current = true;
           return;
         }
 
         const appChanged = previousPkg !== null && pkg !== previousPkg;
 
-        if (appChanged) {
+        if (appChanged && pkg === APP_OWN_PACKAGE) {
+          lastAppPackageRef.current = APP_OWN_PACKAGE;
+          lastAppPackageUpdatedAtRef.current = Date.now();
+          refreshIntervalForApp();
+          return;
+        }
+
+        const launcherReturn = shouldCaptureAfterLauncherReturn(
+          visitedLauncherRef.current,
+          previousPkg,
+          pkg,
+        );
+
+        if (launcherReturn) {
+          visitedLauncherRef.current = false;
+          scLog('Same app resumed after launcher — capturing', { package: pkg });
+          await triggerAppSwitchCapture('app_switch_launcher_return');
+        } else if (appChanged) {
           scLog('App switch detected', {
             from: previousPkg,
             to: pkg,
             label: fg.appLabel,
+            appState: AppState.currentState,
           });
-          await tryCaptureNow('app_switch');
-          scheduleFollowUpCapture(FOLLOW_UP_DELAY_MS);
+          await triggerAppSwitchCapture('app_switch');
         }
 
-        if (!isLauncherPackage(pkg) || previousPkg === null) {
+        if (!isLauncherPackage(pkg)) {
           lastAppPackageRef.current = pkg;
           lastAppPackageUpdatedAtRef.current = Date.now();
           setLastForegroundApp(pkg);
         }
 
-        if (appChanged || previousPkg === null) {
+        if (appChanged || launcherReturn || previousPkg === null) {
           refreshIntervalForApp();
         }
       })();
@@ -939,12 +991,7 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
 
     refreshIntervalForApp();
     scLog('Smart capture timers started (adaptive)');
-  }, [
-    clearAdaptiveTimers,
-    refreshIntervalForApp,
-    scheduleFollowUpCapture,
-    tryCaptureNow,
-  ]);
+  }, [clearAdaptiveTimers, refreshIntervalForApp, triggerAppSwitchCapture]);
 
   const startMonitoring = useCallback(async (): Promise<boolean> => {
     if (Platform.OS !== 'android') {
@@ -984,9 +1031,11 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       setAppCategory(null);
       setAvgRiskScore(null);
       lastCaptureMsRef.current = 0;
-      lastAppPackageRef.current = null;
-
-      void refreshForegroundCache();
+      lastAppPackageRef.current = APP_OWN_PACKAGE;
+      lastAppPackageUpdatedAtRef.current = Date.now();
+      visitedLauncherRef.current = false;
+      pendingAppSwitchCaptureRef.current = false;
+      setLastForegroundApp(APP_OWN_PACKAGE);
 
       setPermissionGranted(true);
       setIsMonitoring(true);
@@ -1120,6 +1169,52 @@ export function useScreenshotCapture(options: UseScreenshotCaptureOptions = {}) 
       clearAdaptiveTimers();
     };
   }, [isMonitoring, isPaused, startSmartCaptureTimers, clearAdaptiveTimers]);
+
+  /** Leaving SafeGuard for another app — capture immediately (UsageStats omits our own package). */
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (!isMonitoringRef.current || isMissionCapturePaused()) {
+        return;
+      }
+      if (nextState === 'background' || nextState === 'inactive') {
+        scLog('AppState left foreground — triggering capture', { nextState });
+        void (async () => {
+          const fg = await withTimeout(
+            resolveForegroundAppWithRetry(3, 200),
+            FOREGROUND_LOOKUP_TIMEOUT_MS,
+            { packageName: 'unknown', appLabel: 'unknown', source: 'none' as const },
+          );
+          if (
+            isUsableForegroundPackage(fg.packageName) &&
+            fg.packageName !== APP_OWN_PACKAGE &&
+            !isLauncherPackage(fg.packageName)
+          ) {
+            lastAppPackageRef.current = fg.packageName;
+            lastAppPackageUpdatedAtRef.current = Date.now();
+            setLastForegroundApp(fg.packageName);
+            scLog('Foreground resolved before app-switch capture', {
+              package: fg.packageName,
+            });
+          }
+          await triggerAppSwitchCapture('appstate_background');
+        })();
+        return;
+      }
+      if (nextState === 'active') {
+        lastAppPackageRef.current = APP_OWN_PACKAGE;
+        lastAppPackageUpdatedAtRef.current = Date.now();
+        scLog('AppState active — switch baseline reset to own app');
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [triggerAppSwitchCapture]);
 
   useEffect(() => {
     return () => {

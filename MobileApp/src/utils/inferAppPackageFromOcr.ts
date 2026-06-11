@@ -3,6 +3,7 @@
  * (recents card, app switcher, or stale UsageStats). Infer the real app from OCR.
  */
 
+import { APP_OWN_PACKAGE } from './appSwitchCapture';
 import { isLauncherPackage } from './appCapturePolicy';
 
 export const INFERRED_PACKAGES = {
@@ -15,6 +16,18 @@ const SOCIAL_PACKAGES = new Set<string>([
   INFERRED_PACKAGES.messenger,
   INFERRED_PACKAGES.instagram,
 ]);
+
+/** Messenger home inbox — search bar, stories, chat list (no active thread header). */
+export function isMessengerInboxContext(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (!/\bmessenger\b/i.test(lower)) {
+    return false;
+  }
+  return (
+    /\b(q\s+or\s+search|post\s+a\s+note|create\s+story)\b/i.test(lower) ||
+    /\bchats?\b/i.test(lower)
+  );
+}
 
 /** Messenger thread UI: "Active 52 minutes ago", chat bubbles, etc. */
 export function isMessengerChatContext(text: string): boolean {
@@ -37,7 +50,7 @@ export function isFullBrowserSearchContext(text: string): boolean {
     /https?:\/\//i.test(lower) ||
     /\b(mode\s*ia|tous\s*images|images|vidéos|videos|recherche|search)\b/i.test(lower);
   const adultQuery =
-    /\b(porn|xxx|sex|pornhub|xnxx|porno|pussy|adult)\b/i.test(lower);
+    /\b(porn|xxx|sex|pornhub|xnxx|porno|pussy|adult|nsfw)\b/i.test(lower);
   return browserChrome && adultQuery && lower.length > 40;
 }
 
@@ -51,6 +64,14 @@ export function shouldOverridePackageWithOcrInference(
     return false;
   }
   if (isLauncherPackage(resolvedPackage)) {
+    return true;
+  }
+  if (
+    resolvedPackage === APP_OWN_PACKAGE &&
+    (inferredPackage === INFERRED_PACKAGES.messenger ||
+      inferredPackage === INFERRED_PACKAGES.chrome ||
+      inferredPackage === INFERRED_PACKAGES.instagram)
+  ) {
     return true;
   }
   if (
@@ -93,7 +114,7 @@ export function inferAppPackageFromOcr(text: string): string | null {
   if (isFullBrowserSearchContext(text)) {
     return INFERRED_PACKAGES.chrome;
   }
-  if (isMessengerChatContext(text)) {
+  if (isMessengerInboxContext(text) || isMessengerChatContext(text)) {
     return INFERRED_PACKAGES.messenger;
   }
   if (isInstagramFeedContext(text)) {

@@ -25,10 +25,18 @@ describe('missionPresentationGuard', () => {
     expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(true);
   });
 
-  it('re-surfaced missions bypass the 90s presentation debounce', () => {
-    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(true);
-    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: false })).toBe(false);
+  it('debounces repeated re-surfaced presentations within 60s', () => {
     expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(true);
+    expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(false);
+    expect(shouldPresentMissionFromCapture('m2', { reSurfaced: true })).toBe(true);
+  });
+
+  it('re-surfaced presentation bypasses the 90s debounce for a new cooldown block', () => {
+    jest.useFakeTimers();
+    expect(shouldPresentMissionFromCapture('m1')).toBe(true);
+    expect(shouldPresentMissionFromCapture('m1')).toBe(false);
+    jest.advanceTimersByTime(61_000);
     expect(shouldPresentMissionFromCapture('m1', { reSurfaced: true })).toBe(true);
+    jest.useRealTimers();
   });
 });

@@ -105,7 +105,7 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 | Trigger | When it fires |
 |---------|----------------|
-| **App switch** | Foreground app changes (UsageStats poll every 1s) → immediate `captureNow()` |
+| **App switch** | `AppState` background (leaving SafeGuard) + UsageStats poll every 1s when another app is foreground → `captureNow()`; baseline `com.mobileapp` while SafeGuard is active (UsageStats omits own package) |
 | **Follow-up** | 5 seconds after app switch, unless a capture completed within the last 2 seconds |
 | **Periodic (adaptive)** | Rolling average of the last **3** `combinedRiskScore` values sets the interval |
 
@@ -127,7 +127,9 @@ Sprint **3.7** replaces a fixed periodic interval with a **risk-based adaptive s
 
 The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` periodic chain respects app-aware intervals (interval **0** clears that timer). Native frames may still arrive and are debounced/OCR-limited.
 
-**Mission overlay debounce:** the same pending mission is not re-shown within **90s** unless the backend **re-surfaces** it during cooldown (`reSurfaced: true` bypasses debounce). **Re-surfaced** missions are suppressed for **8s** after monitoring starts (avoids quiz spam on toggle-on). Overlays are skipped only when the resolved foreground is a **launcher/home** package; if MIUI misreports the launcher while OCR shows Messenger/Chrome, `inferAppPackageFromOcr` overrides attribution so the quiz appears on the app in use.
+**Mission overlay debounce:** the same pending mission is not re-shown within **90s**; **re-surfaced** missions during cooldown use a **60s** minimum gap (same mission id). **Re-surfaced** missions are suppressed for **8s** after monitoring starts (avoids quiz spam on toggle-on). Backend does **not** re-surface `pending_approval` or completed **real_world** missions. Overlays are skipped when the resolved foreground is a **launcher/home** package; `inferAppPackageFromOcr` overrides MIUI/SafeGuard mis-attribution for Messenger/Chrome/WhatsApp inbox OCR.
+
+**Social inbox benign context:** Messenger/WhatsApp home inbox OCR (`Q or search`, stories, chat list) is scored **neutral** unless explicit adult URLs appear. Explicit Google omnibar queries (`Q nsfw`, `NSFW eo google.com/sea`) still trigger enforcement even when Fiverr/design gigs appear in SERP body text.
 
 **Launcher recents bleed:** when the foreground app is the home launcher and OCR is only a **recents-widget thumbnail** (pornhub card on MIUI home), the event is stored as **neutral**. Full **browser SERP** or **Messenger chat** OCR is not neutralized — enforcement runs on the inferred app package.
 
@@ -135,7 +137,7 @@ The native `startCapture(60s)` loop is unchanged; only the **JS** `setTimeout` p
 
 **Post-mission capture:** when a blocking mission ends, foreground package is **snapshotted on pause** and may be reused for **120s** if UsageStats briefly returns `unknown` after resume; `resumeCapture` also **refreshes** the foreground cache. The overlay is shown **before** capture pauses so MIUI does not attribute the frame to SafeGuard. OCR + TFLite are capped at **30s** per frame (`vision_timeout` skip); a **25s processing watchdog**, **5s heartbeat**, and generation token clear stuck `isProcessing` after hung native/API calls. Foreground lookups are **single-flight** serialized with a **2.5s native timeout** so hung UsageStats calls cannot block capture; capture frames reuse a **120s grace cache** before calling native again.
 
-**Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
+**Debounce:** at least **5 seconds** between any two captures (JS + native `captureNow`). Very fast app switches within that window may delay the frame until the follow-up or periodic timer fires (~5–30s). **Blank/loading Chrome tabs** (empty page, still loading, Incognito/DRM) often produce neutral scores with Sky/Space ML Kit labels — wait for the page to load before switching away. **UX:** no extra popups beyond MediaProjection and the foreground-service notification; Usage access is optional but improves `appPackage` / `appLabel` accuracy.
 
 Implementation: `MobileApp/src/hooks/useScreenshotCapture.ts`, `MobileApp/src/utils/adaptiveCapture.ts`, `MobileApp/src/utils/appCapturePolicy.ts`, native `ForegroundAppModule` (UsageStats) and `ScreenCaptureModule.captureNow()`. At capture time, `resolveForegroundAppWithRetry()` queries UsageStats (UsageEvents window **120s**, `queryUsageStats` fallback limited to apps used in the last **5s**). If live lookup fails, the 1s poll cache is used only when younger than **30s**; `com.android.systemui` and launcher packages are never reported. **Rebuild required** after native `ForegroundAppModule.java` changes.
 
@@ -814,5 +816,5 @@ The final PFE report (PDF) will reference this repository and README.
 This project is developed for **educational purposes** as part of the ESPRIT PFE (final year project). All rights reserved by the author and the internship host organisation.
 
 **Maintainer:** [Helmi Megdiche](https://github.com/Helmi-Megdiche)  
-**Last updated:** 5 June 2026  
-**Status:** v1.0-final — Android-only child app; training pipeline and iOS scaffold removed from repo; Sprint 5.8 wellbeing proxies + interests; parent dashboard with `npm run sync:demo`.
+**Last updated:** 11 June 2026  
+**Status:** Pre-integration hardening — app-switch capture, inbox benign context, Google omnibar `nsfw` detection, resurface debounce; **304** automated tests (175 mobile + 129 backend).

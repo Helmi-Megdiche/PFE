@@ -41,6 +41,26 @@ describe('cooldown resurface helpers', () => {
     expect(mockedQuery).toHaveBeenCalledTimes(2);
   });
 
+  it('does not resurface completed real_world missions during cooldown', async () => {
+    mockedQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'm-rw-done',
+            title: 'Spread Kindness',
+            description: 'Kind message',
+            points: 30,
+            status: 'completed',
+            metadata: { type: 'real_world' },
+          },
+        ],
+      });
+
+    const row = await getResurfaceableRiskyMission('child-1', 2);
+    expect(row).toBeNull();
+  });
+
   it('re-opens failed risky mission to pending during cooldown', async () => {
     mockedQuery
       .mockResolvedValueOnce({ rows: [] })

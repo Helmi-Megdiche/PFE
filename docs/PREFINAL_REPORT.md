@@ -215,7 +215,7 @@ const FRAME_PROCESSING_WATCHDOG_MS = 25_000;
 
 | Trigger | Behaviour |
 |---------|-----------|
-| App switch | Immediate `captureNow()` when foreground package changes (1s poll) |
+| App switch | `AppState` background when leaving SafeGuard + 1s UsageStats poll; effective foreground uses `com.mobileapp` while SafeGuard is active (UsageStats excludes own package) |
 | Follow-up | 5 seconds after switch, unless a capture completed within 2 seconds |
 | Periodic | Rolling average of last 3 `combinedRiskScore` values → 10s / 30s / 60s |
 
@@ -231,7 +231,9 @@ const FRAME_PROCESSING_WATCHDOG_MS = 25_000;
 
 - Periodic capture still consumes battery; adaptive logic reduces but does not eliminate cost.
 - Native `startCapture(60s)` may still deliver frames independent of JS interval-0 categories.
-- 5-second debounce means two rapid app switches within 5s share one capture cycle.
+- **5-second native debounce** (JS + `ScreenCaptureModule.captureNow`) means very fast app switches within 5s may skip an immediate frame; follow-up (~5s) or the adaptive periodic timer usually captures within ~5–30s.
+- **Blank/loading Chrome tabs** produce neutral scores (Sky/Space labels, little OCR) — wait for the page to load before app-switch capture.
+- MIUI may briefly attribute `com.miui.home` on the app drawer; OCR inference corrects package for Messenger/Chrome/WhatsApp when UI text is visible.
 - MediaProjection consent is sensitive; revoking it stops the entire pipeline.
 
 ---
@@ -438,7 +440,7 @@ Mission generation is triggered from:
 - **Escalation:** +30% points per level after every 3 `risky_content` missions in 24h (max +60%).
 - **Caps:** max 3 pending missions; 24-hour expiry; cooldown (`MISSION_RISK_COOLDOWN_MINUTES`, default 15 prod / 2 dev).
 
-**Cooldown resurface (v1.0-final):** `getResurfaceableRiskyMission` in `missionHelpers.ts` returns existing missions during cooldown — including `pending`, `failed` (re-opened), and `completed` / `pending_approval` (overlay-only enforcement). `screenEvents.routes.ts` bumps resurfaced missions and sets `reSurfaced: true` for mobile debounce bypass.
+**Cooldown resurface (pre-integration):** `getResurfaceableRiskyMission` returns `pending`, re-opens `failed`, or overlay-only resurface of **completed quiz/cognitive** missions — not `pending_approval` or completed **real_world**. Mobile applies a **60s** minimum gap between re-surfaced overlays (`missionPresentationGuard.ts`). Benign OCR for Messenger/WhatsApp inbox and explicit Google omnibar `nsfw` (`hasExplicitAdultGoogleSearchIntent`) reduce false positives on social home screens and Fiverr SERP body text.
 
 **Interest tie-breaker:** `INTEREST_TAG_MAP` maps parent-selected tags (`sports`, `art`, `reading`, `family`, `brain`) to template keys; `pickCandidate` prefers interest-matching templates **only when multiple candidates remain after freshness filtering**. Priority order addiction &gt; wellbeing &gt; risk category is unchanged.
 
@@ -714,7 +716,7 @@ The SafeGuard platform, as released at **`v1.0-final` (commit `59da85b`)**, impl
 3. **Combined risk scoring** — OCR (30%) + vision (70%) per frame, plus daily addiction/wellbeing scores with exposure penalty and dynamic proxies.
 4. **End-to-end gamification** — Mission generation, overlay enforcement, cognitive games, parent approval, points, badges, levels, and redeemable rewards form a closed behavioural loop.
 5. **Parent visibility** — Web dashboard for monitoring, approvals, interests (guided picker), and rewards.
-6. **Test evidence** — 290 automated unit tests and smoke scripts document behaviour for critical paths.
+6. **Test evidence** — 304 automated unit tests (175 mobile + 129 backend) document behaviour for critical paths.
 
 ### 6.2 Requirements coverage
 
