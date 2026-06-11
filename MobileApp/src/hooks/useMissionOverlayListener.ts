@@ -33,6 +33,27 @@ function isQuizNotPassedError(err: unknown): boolean {
   return /quiz not passed/i.test(message);
 }
 
+function isAbandonNotAllowedError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /only active pending missions can be abandoned/i.test(message);
+}
+
+/** Cooldown re-surface keeps status completed/failed — overlay is enforcement-only. */
+function isEnforcementResurface(metadata: Record<string, unknown>): boolean {
+  return Number(metadata.resurfaceCount ?? 0) > 0;
+}
+
+async function dismissEnforcementOverlay(
+  missionId: string,
+  message: string,
+): Promise<void> {
+  await blockResurfacedMission(missionId);
+  clearStaleNotificationMissionLaunch();
+  await hideMissionOverlay();
+  forceEndMissionCaptureSession();
+  showBriefMessage(message);
+}
+
 function quizRetryMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const { submittedAnswers: _s, answers: _a, ...rest } = metadata;
   return rest;
@@ -78,8 +99,16 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
     return;
   }
 
-  if (event.action === 'abandon') {
-    await blockResurfacedMission(event.missionId);
+  if (event.action === 'abandon' && isEnforcementResurface(metadata)) {
+    scLog('Enforcement overlay dismissed — mission already finished', {
+      missionId: event.missionId,
+      resurfaceCount: metadata.resurfaceCount,
+    });
+    await dismissEnforcementOverlay(
+      event.missionId,
+      'Overlay dismissed for 2 minutes — stay on safe content.',
+    );
+    return;
   }
 
   try {
@@ -100,6 +129,15 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
       await hideMissionOverlay();
       forceEndMissionCaptureSession();
       showBriefMessage('Stay on safe content — mission already completed.');
+      return;
+    }
+
+    if (event.action === 'abandon' && isAbandonNotAllowedError(err)) {
+      scLog('Abandon skipped — enforcement overlay only', { missionId: event.missionId });
+      await dismissEnforcementOverlay(
+        event.missionId,
+        'Overlay dismissed for 2 minutes — stay on safe content.',
+      );
       return;
     }
 
@@ -127,11 +165,11 @@ async function handleOverlayAction(event: OverlayMissionActionEvent): Promise<vo
       return;
     }
 
+    const message = err instanceof Error ? err.message : String(err);
+    scWarn('Overlay mission action failed', { action: event.action, message });
     clearStaleNotificationMissionLaunch();
     await hideMissionOverlay();
     forceEndMissionCaptureSession();
-    const message = err instanceof Error ? err.message : String(err);
-    scError('Overlay mission action failed', err);
     showBriefMessage(`Mission failed: ${message}`);
   }
 }
