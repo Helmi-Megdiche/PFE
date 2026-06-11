@@ -810,27 +810,69 @@
           .join('');
       }
 
-      function renderScoresChart(scores) {
-        const empty = $('scoresEmpty');
+      /** Normalize API date (ISO timestamp or YYYY-MM-DD) to local calendar key. */
+      function scoreDateKey(raw) {
+        if (!raw) return '';
+        const s = String(raw);
+        const iso = s.length >= 10 ? s.slice(0, 10) : s;
+        const parts = iso.split('-').map(Number);
+        if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return iso;
+        const local = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0);
+        const y = local.getFullYear();
+        const m = String(local.getMonth() + 1).padStart(2, '0');
+        const d = String(local.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+
+      function formatScoreChartLabel(dateKey) {
+        const [y, m, d] = dateKey.split('-');
+        return `${d}/${m}/${y}`;
+      }
+
+      function localDateKeyFromDate(day) {
+        const y = day.getFullYear();
+        const m = String(day.getMonth() + 1).padStart(2, '0');
+        const d = String(day.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+
+      /** Always render 7 calendar days; missing cron rows show as gaps (null). */
+      function buildSevenDayScoreSeries(scores) {
+        const byDate = new Map();
+        (scores || []).forEach((s) => {
+          const key = scoreDateKey(s.date);
+          if (key) byDate.set(key, s);
+        });
+
         const labels = [];
         const addiction = [];
         const wellbeing = [];
+        const today = new Date();
+        today.setHours(12, 0, 0, 0);
 
-        (scores || []).forEach((s) => {
-          labels.push(s.date);
-          addiction.push(s.addictionScore);
-          wellbeing.push(s.wellbeingScore);
-        });
-
-        if (!labels.length) {
-          empty.classList.remove('hidden');
-          if (scoresChart) {
-            scoresChart.destroy();
-            scoresChart = null;
-          }
-          return;
+        for (let offset = 6; offset >= 0; offset--) {
+          const day = new Date(today);
+          day.setDate(today.getDate() - offset);
+          const key = localDateKeyFromDate(day);
+          labels.push(formatScoreChartLabel(key));
+          const row = byDate.get(key);
+          addiction.push(row != null ? row.addictionScore : null);
+          wellbeing.push(row != null ? row.wellbeingScore : null);
         }
-        empty.classList.add('hidden');
+
+        const hasAny = addiction.some((v) => v != null) || wellbeing.some((v) => v != null);
+        return { labels, addiction, wellbeing, hasAny };
+      }
+
+      function renderScoresChart(scores) {
+        const empty = $('scoresEmpty');
+        const { labels, addiction, wellbeing, hasAny } = buildSevenDayScoreSeries(scores);
+
+        if (!hasAny) {
+          empty.classList.remove('hidden');
+        } else {
+          empty.classList.add('hidden');
+        }
 
         const ctx = $('scoresChart').getContext('2d');
         if (scoresChart) scoresChart.destroy();
@@ -847,6 +889,7 @@
                 backgroundColor: 'rgba(220, 38, 38, 0.1)',
                 tension: 0.3,
                 fill: true,
+                spanGaps: false,
               },
               {
                 label: 'Well-being',
@@ -855,6 +898,7 @@
                 backgroundColor: 'rgba(22, 163, 74, 0.1)',
                 tension: 0.3,
                 fill: true,
+                spanGaps: false,
               },
             ],
           },
@@ -862,6 +906,9 @@
             responsive: true,
             maintainAspectRatio: false,
             scales: {
+              x: {
+                title: { display: true, text: 'Date (last 7 days)' },
+              },
               y: { min: 0, max: 100, title: { display: true, text: 'Score (0–100)' } },
             },
             plugins: { legend: { position: 'bottom' } },

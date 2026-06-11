@@ -30,11 +30,18 @@ interface DailyScoreRow {
   created_at: string;
 }
 
+function formatScoreDate(scoreDate: string | Date): string {
+  if (scoreDate instanceof Date) {
+    return scoreDate.toISOString().slice(0, 10);
+  }
+  return String(scoreDate).slice(0, 10);
+}
+
 function mapScoreRow(row: DailyScoreRow) {
   return {
     id: row.id,
     childId: row.child_id,
-    date: row.score_date,
+    date: formatScoreDate(row.score_date as string | Date),
     addictionScore: row.addiction_score,
     wellbeingScore: row.wellbeing_score,
     components: {
